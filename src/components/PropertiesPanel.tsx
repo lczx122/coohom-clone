@@ -1,14 +1,21 @@
+import { useEffect, useState } from 'react'
 import { useDesignStore } from '../store/useDesignStore'
 import { productById } from '../data/catalog'
 import { company } from '../config/company'
 import { dist } from '../lib/geometry'
+import { detectRooms } from '../lib/rooms'
+import { formatArea, lengthValue, toMeters, unitStep } from '../lib/units'
 
 export default function PropertiesPanel() {
-  const { selection, walls, openings, items } = useDesignStore()
+  const { selection, walls, openings, items, unit, roomNames } = useDesignStore()
   const updateWall = useDesignStore((s) => s.updateWall)
+  const setWallLength = useDesignStore((s) => s.setWallLength)
   const updateOpening = useDesignStore((s) => s.updateOpening)
   const updateItem = useDesignStore((s) => s.updateItem)
   const deleteSelection = useDesignStore((s) => s.deleteSelection)
+  const setRoomName = useDesignStore((s) => s.setRoomName)
+
+  const step = unitStep(unit)
 
   if (!selection) {
     return (
@@ -16,14 +23,15 @@ export default function PropertiesPanel() {
         <div className="section-title">Properties</div>
         <p className="empty-note">
           Nothing selected. Use the <b>Select</b> tool and click a wall, door,
-          window, or product to edit it here.
+          window, room, or product to edit it here.
         </p>
         <div className="section-title">Tips</div>
         <p className="empty-note">
-          • <b>Wall</b> tool: click to chain segments, double-click or Esc to
-          finish.
-          <br />• Walls snap to the grid and to existing corners.
-          <br />• Scroll to zoom, drag with the <b>Pan</b> tool or middle mouse.
+          • <b>Wall</b> tool: left-click to chain segments; right-click to finish
+          and return to the cursor.
+          <br />• Lines snap to right angles — hold <b>Shift</b> for a free angle.
+          <br />• Select a wall to edit its length right on the plan.
+          <br />• Enclose an area with walls to create a <b>room</b> you can name.
           <br />• <b>R</b> rotates a selected product; <b>Delete</b> removes it.
         </p>
       </div>
@@ -37,28 +45,37 @@ export default function PropertiesPanel() {
       <div className="props">
         <div className="section-title">Wall</div>
         <div className="field">
-          <label>Length</label>
-          <input value={`${dist(w.start, w.end).toFixed(3)} m`} disabled />
+          <label>Length ({unit})</label>
+          <input
+            type="number"
+            step={step}
+            min={step}
+            value={lengthValue(dist(w.start, w.end), unit)}
+            onChange={(e) => {
+              const v = toMeters(+e.target.value, unit)
+              if (v > 0) setWallLength(w.id, v)
+            }}
+          />
         </div>
         <div className="row2">
           <div className="field">
-            <label>Thickness (m)</label>
+            <label>Thickness ({unit})</label>
             <input
               type="number"
-              step="0.01"
-              min="0.02"
-              value={w.thickness}
-              onChange={(e) => updateWall(w.id, { thickness: Math.max(0.02, +e.target.value) })}
+              step={step}
+              min={step}
+              value={lengthValue(w.thickness, unit)}
+              onChange={(e) => updateWall(w.id, { thickness: Math.max(0.02, toMeters(+e.target.value, unit)) })}
             />
           </div>
           <div className="field">
-            <label>Height (m)</label>
+            <label>Height ({unit})</label>
             <input
               type="number"
-              step="0.05"
-              min="0.1"
-              value={w.height}
-              onChange={(e) => updateWall(w.id, { height: Math.max(0.1, +e.target.value) })}
+              step={step}
+              min={step}
+              value={lengthValue(w.height, unit)}
+              onChange={(e) => updateWall(w.id, { height: Math.max(0.1, toMeters(+e.target.value, unit)) })}
             />
           </div>
         </div>
@@ -76,34 +93,34 @@ export default function PropertiesPanel() {
       <div className="props">
         <div className="section-title">{o.kind === 'door' ? 'Door' : 'Window'}</div>
         <div className="field">
-          <label>Width (m)</label>
+          <label>Width ({unit})</label>
           <input
             type="number"
-            step="0.05"
-            min="0.3"
-            value={o.width}
-            onChange={(e) => updateOpening(o.id, { width: Math.max(0.3, +e.target.value) })}
+            step={step}
+            min={step}
+            value={lengthValue(o.width, unit)}
+            onChange={(e) => updateOpening(o.id, { width: Math.max(0.3, toMeters(+e.target.value, unit)) })}
           />
         </div>
         <div className="row2">
           <div className="field">
-            <label>Height (m)</label>
+            <label>Height ({unit})</label>
             <input
               type="number"
-              step="0.05"
-              min="0.3"
-              value={o.height}
-              onChange={(e) => updateOpening(o.id, { height: Math.max(0.3, +e.target.value) })}
+              step={step}
+              min={step}
+              value={lengthValue(o.height, unit)}
+              onChange={(e) => updateOpening(o.id, { height: Math.max(0.3, toMeters(+e.target.value, unit)) })}
             />
           </div>
           <div className="field">
-            <label>Sill (m)</label>
+            <label>Sill ({unit})</label>
             <input
               type="number"
-              step="0.05"
-              min="0"
-              value={o.sill}
-              onChange={(e) => updateOpening(o.id, { sill: Math.max(0, +e.target.value) })}
+              step={step}
+              min={0}
+              value={lengthValue(o.sill, unit)}
+              onChange={(e) => updateOpening(o.id, { sill: Math.max(0, toMeters(+e.target.value, unit)) })}
             />
           </div>
         </div>
@@ -123,6 +140,10 @@ export default function PropertiesPanel() {
         </button>
       </div>
     )
+  }
+
+  if (selection.kind === 'room') {
+    return <RoomProps roomKey={selection.id} roomNames={roomNames} setRoomName={setRoomName} />
   }
 
   // item
@@ -150,21 +171,21 @@ export default function PropertiesPanel() {
       </div>
       <div className="row2">
         <div className="field">
-          <label>X (m)</label>
+          <label>X ({unit})</label>
           <input
             type="number"
-            step="0.05"
-            value={it.position.x.toFixed(2)}
-            onChange={(e) => updateItem(it.id, { position: { ...it.position, x: +e.target.value } })}
+            step={step}
+            value={lengthValue(it.position.x, unit)}
+            onChange={(e) => updateItem(it.id, { position: { ...it.position, x: toMeters(+e.target.value, unit) } })}
           />
         </div>
         <div className="field">
-          <label>Y (m)</label>
+          <label>Y ({unit})</label>
           <input
             type="number"
-            step="0.05"
-            value={it.position.y.toFixed(2)}
-            onChange={(e) => updateItem(it.id, { position: { ...it.position, y: +e.target.value } })}
+            step={step}
+            value={lengthValue(it.position.y, unit)}
+            onChange={(e) => updateItem(it.id, { position: { ...it.position, y: toMeters(+e.target.value, unit) } })}
           />
         </div>
       </div>
@@ -179,13 +200,65 @@ export default function PropertiesPanel() {
           onChange={(e) => updateItem(it.id, { rotation: (+e.target.value * Math.PI) / 180 })}
         />
       </div>
-      <div className="field">
-        <label>Footprint</label>
-        <input value={`${prod.width} × ${prod.depth} × ${prod.height} m`} disabled />
-      </div>
       <button className="danger" onClick={deleteSelection}>
         Delete product
       </button>
+    </div>
+  )
+}
+
+function RoomProps({
+  roomKey,
+  roomNames,
+  setRoomName,
+}: {
+  roomKey: string
+  roomNames: Record<string, string>
+  setRoomName: (key: string, name: string) => void
+}) {
+  const walls = useDesignStore((s) => s.walls)
+  const room = detectRooms(walls).find((r) => r.key === roomKey)
+  const idx = detectRooms(walls).findIndex((r) => r.key === roomKey)
+  const [name, setName] = useState(roomNames[roomKey] ?? '')
+
+  useEffect(() => {
+    setName(roomNames[roomKey] ?? '')
+  }, [roomKey, roomNames])
+
+  if (!room) {
+    return (
+      <div className="props">
+        <div className="section-title">Room</div>
+        <p className="empty-note">This room no longer exists.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="props">
+      <div className="section-title">Room</div>
+      <div className="field">
+        <label>Name</label>
+        <input
+          value={name}
+          placeholder={`Room ${idx + 1}`}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => setRoomName(roomKey, name)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              setRoomName(roomKey, name)
+              ;(e.target as HTMLInputElement).blur()
+            }
+          }}
+        />
+      </div>
+      <div className="field">
+        <label>Floor area</label>
+        <input value={formatArea(room.area)} disabled />
+      </div>
+      <p className="empty-note">
+        Renaming sticks as long as this room's corners don't change.
+      </p>
     </div>
   )
 }

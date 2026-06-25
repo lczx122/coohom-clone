@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { useDesignStore } from '../store/useDesignStore'
 import { company } from '../config/company'
 import type { Tool } from '../types'
+import type { Unit } from '../lib/units'
 
 const TOOLS: { tool: Tool; label: string; icon: string; hint: string }[] = [
   { tool: 'select', label: 'Select', icon: '⇖', hint: 'Select / move (V)' },
@@ -24,9 +25,19 @@ export default function Toolbar({
   const redo = useDesignStore((s) => s.redo)
   const canUndo = useDesignStore((s) => s.past.length > 0)
   const canRedo = useDesignStore((s) => s.future.length > 0)
-  const newPlan = useDesignStore((s) => s.newPlan)
   const exportSnapshot = useDesignStore((s) => s.exportSnapshot)
   const loadSnapshot = useDesignStore((s) => s.loadSnapshot)
+  const unit = useDesignStore((s) => s.unit)
+  const setUnit = useDesignStore((s) => s.setUnit)
+
+  const projects = useDesignStore((s) => s.projects)
+  const currentProjectId = useDesignStore((s) => s.currentProjectId)
+  const currentProjectName = useDesignStore((s) => s.currentProjectName)
+  const newProject = useDesignStore((s) => s.newProject)
+  const switchProject = useDesignStore((s) => s.switchProject)
+  const renameProject = useDesignStore((s) => s.renameProject)
+  const deleteProject = useDesignStore((s) => s.deleteProject)
+
   const fileRef = useRef<HTMLInputElement>(null)
 
   const doExport = () => {
@@ -35,7 +46,7 @@ export default function Toolbar({
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'floorplan.json'
+    a.download = `${currentProjectName || 'floorplan'}.json`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -64,6 +75,53 @@ export default function Toolbar({
         <span className="tag">{company.tagline}</span>
       </div>
 
+      {/* Projects */}
+      <div className="proj-group">
+        <select
+          className="proj-select"
+          value={currentProjectId}
+          onChange={(e) => switchProject(e.target.value)}
+          title="Switch project"
+        >
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <button
+          className="icon-btn"
+          title="New project"
+          onClick={() => {
+            const name = prompt('New project name:', 'Untitled Plan')
+            if (name !== null) newProject(name.trim() || 'Untitled Plan')
+          }}
+        >
+          ＋
+        </button>
+        <button
+          className="icon-btn"
+          title="Rename project"
+          onClick={() => {
+            const name = prompt('Rename project:', currentProjectName)
+            if (name !== null && name.trim()) renameProject(currentProjectId, name.trim())
+          }}
+        >
+          ✎
+        </button>
+        <button
+          className="icon-btn"
+          title="Delete project"
+          onClick={() => {
+            if (confirm(`Delete project "${currentProjectName}"? This cannot be undone.`)) {
+              deleteProject(currentProjectId)
+            }
+          }}
+        >
+          🗑
+        </button>
+      </div>
+
       <div className="tool-group">
         {TOOLS.map((t) => (
           <button
@@ -88,41 +146,30 @@ export default function Toolbar({
 
       <div className="spacer" />
 
+      <select
+        className="proj-select"
+        value={unit}
+        onChange={(e) => setUnit(e.target.value as Unit)}
+        title="Display units"
+        style={{ minWidth: 56 }}
+      >
+        <option value="mm">mm</option>
+        <option value="m">m</option>
+      </select>
+
       <button className="icon-btn" onClick={() => fileRef.current?.click()}>
         Import
       </button>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="application/json"
-        style={{ display: 'none' }}
-        onChange={doImport}
-      />
+      <input ref={fileRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={doImport} />
       <button className="icon-btn" onClick={doExport}>
         Export
       </button>
-      <button
-        className="icon-btn"
-        onClick={() => {
-          if (confirm('Start a new, empty plan?')) newPlan()
-        }}
-      >
-        New
-      </button>
 
       <div className="view-toggle" style={{ position: 'static' }}>
-        <button
-          className={`tool-btn ${view === '2d' ? 'active' : ''}`}
-          onClick={() => setView('2d')}
-          style={{ minWidth: 40 }}
-        >
+        <button className={`tool-btn ${view === '2d' ? 'active' : ''}`} onClick={() => setView('2d')} style={{ minWidth: 40 }}>
           2D
         </button>
-        <button
-          className={`tool-btn ${view === '3d' ? 'active' : ''}`}
-          onClick={() => setView('3d')}
-          style={{ minWidth: 40 }}
-        >
+        <button className={`tool-btn ${view === '3d' ? 'active' : ''}`} onClick={() => setView('3d')} style={{ minWidth: 40 }}>
           3D
         </button>
       </div>

@@ -1,10 +1,12 @@
 import { catalog, categories } from '../data/catalog'
 import { company } from '../config/company'
 import { useDesignStore } from '../store/useDesignStore'
+import { lengthValue } from '../lib/units'
 
 export default function Catalog() {
   const placingProductId = useDesignStore((s) => s.placingProductId)
   const setPlacingProduct = useDesignStore((s) => s.setPlacingProduct)
+  const unit = useDesignStore((s) => s.unit)
 
   return (
     <div className="sidebar">
@@ -33,7 +35,7 @@ export default function Catalog() {
                 <div className="meta">
                   <div className="pname">{p.name}</div>
                   <div className="pdim">
-                    {p.width.toFixed(2)} × {p.depth.toFixed(2)} m
+                    {lengthValue(p.width, unit)} × {lengthValue(p.depth, unit)} {unit}
                   </div>
                 </div>
                 {p.price != null && (

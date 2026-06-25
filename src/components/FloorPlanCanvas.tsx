@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDesignStore } from '../store/useDesignStore'
 import { productById } from '../data/catalog'
 import type { Vec2 } from '../types'
@@ -10,6 +10,8 @@ import {
   snapToGrid,
   sub,
 } from '../lib/geometry'
+import { detectRooms, pointInPolygon } from '../lib/rooms'
+import { formatArea, formatLength, lengthValue, toMeters } from '../lib/units'
 
 const BASE_PPM = 100 // pixels per meter at zoom = 1
 
@@ -19,7 +21,7 @@ type Interaction =
   | { type: 'drawing'; anchor: Vec2 }
   | { type: 'drag-item'; id: string; grabOffset: Vec2; current: Vec2 }
   | { type: 'drag-wall'; id: string; start0: Vec2; end0: Vec2; grab: Vec2; current: Vec2 }
-  | { type: 'drag-endpoint'; id: string; which: 'start' | 'end'; current: Vec2 }
+  | { type: 'drag-endpoint'; origin: Vec2; current: Vec2 }
   | { type: 'drag-opening'; id: string; current: Vec2 }
 
 export default function FloorPlanCanvas() {
@@ -28,20 +30,16 @@ export default function FloorPlanCanvas() {
   const [size, setSize] = useState({ w: 800, h: 600 })
   const [interaction, setInteraction] = useState<Interaction>({ type: 'idle' })
   const [mouseWorld, setMouseWorld] = useState<Vec2>({ x: 0, y: 0 })
+  const [shiftHeld, setShiftHeld] = useState(false)
+  const [lenDraft, setLenDraft] = useState('')
 
   const store = useDesignStore()
   const {
-    walls,
-    openings,
-    items,
-    camera,
-    tool,
-    selection,
-    placingProductId,
-    snapEnabled,
-    snapIncrement,
-    gridSize,
+    walls, openings, items, camera, tool, selection, placingProductId,
+    snapEnabled, orthoEnabled, snapIncrement, gridSize, unit, roomNames,
   } = store
+
+  const rooms = useMemo(() => detectRooms(walls), [walls])
 
   // ----- coordinate transforms -----
   const ppm = BASE_PPM * camera.zoom
@@ -59,29 +57,70 @@ export default function FloorPlanCanvas() {
     return { x: e.clientX - rect.left, y: e.clientY - rect.top }
   }, [])
 
-  /** Snap a world point: endpoints first, then grid. */
+  /** Snap for moving things (endpoints first, then grid). */
   const snap = useCallback(
     (p: Vec2): Vec2 => {
       if (!snapEnabled) return p
-      const endpointThreshold = 12 / ppm
-      const ep = snapToEndpoints(p, walls, endpointThreshold)
+      const ep = snapToEndpoints(p, walls, 12 / ppm)
       if (ep) return ep
       return snapToGrid(p, snapIncrement)
     },
     [snapEnabled, ppm, walls, snapIncrement],
   )
 
+  /** Snap while drawing a wall: connect corners, then constrain to right angles. */
+  const snapDraw = useCallback(
+    (anchor: Vec2, raw: Vec2): Vec2 => {
+      if (snapEnabled) {
+        const ep = snapToEndpoints(raw, walls, 12 / ppm)
+        if (ep) return ep
+      }
+      let p = raw
+      if (orthoEnabled && !shiftHeld) {
+        const dx = raw.x - anchor.x
+        const dy = raw.y - anchor.y
+        p = Math.abs(dx) >= Math.abs(dy) ? { x: raw.x, y: anchor.y } : { x: anchor.x, y: raw.y }
+      }
+      if (snapEnabled) p = snapToGrid(p, snapIncrement)
+      return p
+    },
+    [snapEnabled, orthoEnabled, shiftHeld, ppm, walls, snapIncrement],
+  )
+
   // ----- resize handling -----
   useEffect(() => {
     const el = wrapRef.current
     if (!el) return
-    const ro = new ResizeObserver(() => {
-      setSize({ w: el.clientWidth, h: el.clientHeight })
-    })
+    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }))
     ro.observe(el)
     setSize({ w: el.clientWidth, h: el.clientHeight })
     return () => ro.disconnect()
   }, [])
+
+  // ----- track Shift for temporary ortho override -----
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setShiftHeld(true)
+      if (e.key === 'Escape' && interaction.type === 'drawing') setInteraction({ type: 'idle' })
+    }
+    const up = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setShiftHeld(false)
+    }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+    }
+  }, [interaction])
+
+  // keep the inline length editor in sync with the selected wall
+  useEffect(() => {
+    if (selection?.kind === 'wall') {
+      const w = walls.find((x) => x.id === selection.id)
+      if (w) setLenDraft(String(lengthValue(dist(w.start, w.end), unit)))
+    }
+  }, [selection, walls, unit])
 
   // ----- hit testing -----
   const itemAt = useCallback(
@@ -90,15 +129,12 @@ export default function FloorPlanCanvas() {
         const it = items[i]
         const prod = productById(it.productId)
         if (!prod) continue
-        // transform point into the item's local frame
         const d = sub(p, it.position)
         const c = Math.cos(-it.rotation)
         const s = Math.sin(-it.rotation)
         const lx = d.x * c - d.y * s
         const ly = d.x * s + d.y * c
-        if (Math.abs(lx) <= prod.width / 2 && Math.abs(ly) <= prod.depth / 2) {
-          return it
-        }
+        if (Math.abs(lx) <= prod.width / 2 && Math.abs(ly) <= prod.depth / 2) return it
       }
       return null
     },
@@ -108,32 +144,33 @@ export default function FloorPlanCanvas() {
   // ----- pointer handlers -----
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
+      // Right click: finish any drawing and return to the cursor tool.
+      if (e.button === 2) {
+        setInteraction({ type: 'idle' })
+        store.setTool('select')
+        return
+      }
+
       canvasRef.current?.setPointerCapture(e.pointerId)
       const screen = getMouse(e)
       const world = screenToWorld(screen)
       const middle = e.button === 1
       const space = (e as unknown as { getModifierState?: (k: string) => boolean }).getModifierState?.(' ')
 
-      // Pan: middle mouse, pan tool, or space held
       if (middle || tool === 'pan' || space) {
-        setInteraction({
-          type: 'panning',
-          startScreen: screen,
-          startPan: { x: camera.panX, y: camera.panY },
-        })
+        setInteraction({ type: 'panning', startScreen: screen, startPan: { x: camera.panX, y: camera.panY } })
         return
       }
 
       if (tool === 'wall') {
-        const p = snap(world)
         if (interaction.type === 'drawing') {
-          // commit a segment from anchor -> p, continue chain from p
+          const p = snapDraw(interaction.anchor, world)
           if (dist(interaction.anchor, p) > 0.01) {
             store.addWall(interaction.anchor, p)
             setInteraction({ type: 'drawing', anchor: p })
           }
         } else {
-          setInteraction({ type: 'drawing', anchor: p })
+          setInteraction({ type: 'drawing', anchor: snap(world) })
         }
         return
       }
@@ -151,23 +188,21 @@ export default function FloorPlanCanvas() {
       }
 
       // ----- select tool -----
-      // 1) endpoint handle of a selected wall
       if (selection?.kind === 'wall') {
         const w = walls.find((x) => x.id === selection.id)
         if (w) {
           const handleR = 10 / ppm
           if (dist(world, w.start) <= handleR) {
-            setInteraction({ type: 'drag-endpoint', id: w.id, which: 'start', current: w.start })
+            setInteraction({ type: 'drag-endpoint', origin: w.start, current: w.start })
             return
           }
           if (dist(world, w.end) <= handleR) {
-            setInteraction({ type: 'drag-endpoint', id: w.id, which: 'end', current: w.end })
+            setInteraction({ type: 'drag-endpoint', origin: w.end, current: w.end })
             return
           }
         }
       }
 
-      // 2) items
       const it = itemAt(world)
       if (it) {
         store.setSelection({ kind: 'item', id: it.id })
@@ -175,7 +210,6 @@ export default function FloorPlanCanvas() {
         return
       }
 
-      // 3) openings
       let openHit: string | null = null
       for (const o of openings) {
         const w = walls.find((x) => x.id === o.wallId)
@@ -192,24 +226,26 @@ export default function FloorPlanCanvas() {
         return
       }
 
-      // 4) walls
       const wallHit = nearestWall(world, walls, 0.15)
       if (wallHit) {
         store.setSelection({ kind: 'wall', id: wallHit.wall.id })
         setInteraction({
-          type: 'drag-wall',
-          id: wallHit.wall.id,
-          start0: wallHit.wall.start,
-          end0: wallHit.wall.end,
-          grab: world,
-          current: world,
+          type: 'drag-wall', id: wallHit.wall.id,
+          start0: wallHit.wall.start, end0: wallHit.wall.end, grab: world, current: world,
         })
+        return
+      }
+
+      // rooms (lowest priority)
+      const room = rooms.find((r) => pointInPolygon(world, r.polygon))
+      if (room) {
+        store.setSelection({ kind: 'room', id: room.key })
         return
       }
 
       store.setSelection(null)
     },
-    [tool, interaction, selection, walls, openings, camera, placingProductId, ppm, snap, screenToWorld, getMouse, itemAt, store],
+    [tool, interaction, selection, walls, openings, camera, placingProductId, ppm, rooms, snap, snapDraw, screenToWorld, getMouse, itemAt, store],
   )
 
   const onPointerMove = useCallback(
@@ -219,13 +255,12 @@ export default function FloorPlanCanvas() {
       setMouseWorld(world)
 
       switch (interaction.type) {
-        case 'panning': {
+        case 'panning':
           store.setCamera({
             panX: interaction.startPan.x + (screen.x - interaction.startScreen.x),
             panY: interaction.startPan.y + (screen.y - interaction.startScreen.y),
           })
           break
-        }
         case 'drag-item':
           setInteraction({ ...interaction, current: snap(sub(world, interaction.grabOffset)) })
           break
@@ -254,7 +289,7 @@ export default function FloorPlanCanvas() {
           setInteraction({ type: 'idle' })
           break
         case 'drag-endpoint':
-          store.updateWall(interaction.id, { [interaction.which]: interaction.current })
+          store.moveJoint(interaction.origin, interaction.current)
           setInteraction({ type: 'idle' })
           break
         case 'drag-wall': {
@@ -267,7 +302,8 @@ export default function FloorPlanCanvas() {
           break
         }
         case 'drag-opening': {
-          const w = walls.find((x) => x.id === store.openings.find((o) => o.id === interaction.id)?.wallId)
+          const o = store.openings.find((x) => x.id === interaction.id)
+          const w = walls.find((x) => x.id === o?.wallId)
           if (w) {
             const proj = nearestWall(interaction.current, [w], Infinity)
             if (proj) store.updateOpening(interaction.id, { t: proj.t })
@@ -278,7 +314,6 @@ export default function FloorPlanCanvas() {
         case 'panning':
           setInteraction({ type: 'idle' })
           break
-        // 'drawing' stays active across clicks; ended via keyboard/dblclick
         default:
           break
       }
@@ -295,30 +330,14 @@ export default function FloorPlanCanvas() {
       const screen = getMouse(e)
       const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1
       const newZoom = Math.min(8, Math.max(0.15, camera.zoom * factor))
-      // keep the world point under the cursor fixed
       const wx = (screen.x - camera.panX) / (BASE_PPM * camera.zoom)
       const wy = (screen.y - camera.panY) / (BASE_PPM * camera.zoom)
-      store.setCamera({
-        zoom: newZoom,
-        panX: screen.x - wx * BASE_PPM * newZoom,
-        panY: screen.y - wy * BASE_PPM * newZoom,
-      })
+      store.setCamera({ zoom: newZoom, panX: screen.x - wx * BASE_PPM * newZoom, panY: screen.y - wy * BASE_PPM * newZoom })
     },
     [camera, getMouse, store],
   )
 
-  // cancel drawing on Escape (handled globally too, but keep local safety)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && interaction.type === 'drawing') {
-        setInteraction({ type: 'idle' })
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [interaction])
-
-  // ----- drawing the scene -----
+  // ----- draw -----
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -333,10 +352,13 @@ export default function FloorPlanCanvas() {
 
     drawGrid(ctx, size, camera, gridSize)
 
-    // effective geometry (apply live drag overrides for smooth feedback)
+    // effective walls with live drag overrides
     const effWalls = walls.map((w) => {
-      if (interaction.type === 'drag-endpoint' && interaction.id === w.id) {
-        return { ...w, [interaction.which]: interaction.current }
+      if (interaction.type === 'drag-endpoint') {
+        let { start, end } = w
+        if (dist(start, interaction.origin) <= 0.005) start = interaction.current
+        if (dist(end, interaction.origin) <= 0.005) end = interaction.current
+        if (start !== w.start || end !== w.end) return { ...w, start, end }
       }
       if (interaction.type === 'drag-wall' && interaction.id === w.id) {
         const delta = sub(interaction.current, interaction.grab)
@@ -347,6 +369,31 @@ export default function FloorPlanCanvas() {
         }
       }
       return w
+    })
+
+    // rooms (under walls)
+    const effRooms = interaction.type === 'idle' ? rooms : detectRooms(effWalls)
+    effRooms.forEach((room, idx) => {
+      const selected = selection?.kind === 'room' && selection.id === room.key
+      ctx.beginPath()
+      room.polygon.forEach((pt, i) => {
+        const sp = worldToScreen(pt)
+        if (i === 0) ctx.moveTo(sp.x, sp.y)
+        else ctx.lineTo(sp.x, sp.y)
+      })
+      ctx.closePath()
+      ctx.fillStyle = selected ? 'rgba(47,109,246,0.22)' : 'rgba(120,160,255,0.08)'
+      ctx.fill()
+      const c = worldToScreen(room.centroid)
+      const name = roomNames[room.key] ?? `Room ${idx + 1}`
+      ctx.font = '600 13px -apple-system, system-ui, sans-serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillStyle = '#e6e9ef'
+      ctx.fillText(name, c.x, c.y - 8)
+      ctx.font = '11px -apple-system, system-ui, sans-serif'
+      ctx.fillStyle = '#9aa3b2'
+      ctx.fillText(formatArea(room.area), c.x, c.y + 9)
     })
 
     // walls
@@ -362,10 +409,10 @@ export default function FloorPlanCanvas() {
       ctx.lineTo(b.x, b.y)
       ctx.stroke()
 
-      // dimension label
       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
-      const length = dist(w.start, w.end)
-      drawLabel(ctx, `${length.toFixed(2)} m`, mid.x, mid.y - Math.max(8, w.thickness * ppm))
+      if (!(selected && interaction.type === 'idle')) {
+        drawLabel(ctx, formatLength(dist(w.start, w.end), unit), mid.x, mid.y - Math.max(8, w.thickness * ppm))
+      }
 
       if (selected) {
         for (const pt of [w.start, w.end]) {
@@ -387,17 +434,15 @@ export default function FloorPlanCanvas() {
       if (!w) continue
       const center = lerp(w.start, w.end, o.t)
       const c = worldToScreen(center)
-      const angle = Math.atan2(w.end.y - w.start.y, w.end.x - w.start.x)
+      const ang = Math.atan2(w.end.y - w.start.y, w.end.x - w.start.x)
       const halfW = (o.width / 2) * ppm
       const selected = selection?.kind === 'opening' && selection.id === o.id
       ctx.save()
       ctx.translate(c.x, c.y)
-      ctx.rotate(angle)
-      // gap (draw over the wall in background color)
+      ctx.rotate(ang)
       ctx.fillStyle = '#0c0e12'
       const t = Math.max(2, w.thickness * ppm) + 2
       ctx.fillRect(-halfW, -t / 2, halfW * 2, t)
-      // symbol
       ctx.strokeStyle = selected ? '#2f6df6' : o.kind === 'door' ? '#7ee081' : '#7fb6ff'
       ctx.lineWidth = 2
       if (o.kind === 'door') {
@@ -439,7 +484,6 @@ export default function FloorPlanCanvas() {
       ctx.rect(-w / 2, -d / 2, w, d)
       ctx.fill()
       ctx.stroke()
-      // front-facing indicator (a line on +y edge)
       ctx.strokeStyle = 'rgba(0,0,0,0.35)'
       ctx.beginPath()
       ctx.moveTo(-w / 2, d / 2)
@@ -453,7 +497,7 @@ export default function FloorPlanCanvas() {
     // in-progress wall preview
     if (interaction.type === 'drawing') {
       const a = worldToScreen(interaction.anchor)
-      const snapped = snap(mouseWorld)
+      const snapped = snapDraw(interaction.anchor, mouseWorld)
       const b = worldToScreen(snapped)
       ctx.strokeStyle = '#2f6df6'
       ctx.setLineDash([6, 4])
@@ -463,9 +507,7 @@ export default function FloorPlanCanvas() {
       ctx.lineTo(b.x, b.y)
       ctx.stroke()
       ctx.setLineDash([])
-      const length = dist(interaction.anchor, snapped)
-      drawLabel(ctx, `${length.toFixed(2)} m`, (a.x + b.x) / 2, (a.y + b.y) / 2 - 10)
-      // anchor dot
+      drawLabel(ctx, formatLength(dist(interaction.anchor, snapped), unit), (a.x + b.x) / 2, (a.y + b.y) / 2 - 10)
       ctx.fillStyle = '#2f6df6'
       ctx.beginPath()
       ctx.arc(a.x, a.y, 4, 0, Math.PI * 2)
@@ -492,15 +534,26 @@ export default function FloorPlanCanvas() {
     }
   }, [
     size, walls, openings, items, camera, selection, interaction, mouseWorld,
-    tool, placingProductId, gridSize, ppm, worldToScreen, snap,
+    tool, placingProductId, gridSize, ppm, unit, rooms, roomNames, worldToScreen, snap, snapDraw,
   ])
 
+  // inline editable length for the selected wall
+  const selectedWall = selection?.kind === 'wall' ? walls.find((w) => w.id === selection.id) : null
+  let lenBox: { x: number; y: number } | null = null
+  if (selectedWall && interaction.type === 'idle') {
+    const a = worldToScreen(selectedWall.start)
+    const b = worldToScreen(selectedWall.end)
+    lenBox = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+  }
+
+  const commitLen = () => {
+    if (!selectedWall) return
+    const v = parseFloat(lenDraft)
+    if (!isNaN(v) && v > 0) store.setWallLength(selectedWall.id, toMeters(v, unit))
+  }
+
   const cursor =
-    tool === 'pan'
-      ? 'grab'
-      : tool === 'wall' || tool === 'place'
-      ? 'crosshair'
-      : 'default'
+    tool === 'pan' ? 'grab' : tool === 'wall' || tool === 'place' ? 'crosshair' : 'default'
 
   return (
     <div className="canvas-wrap" ref={wrapRef}>
@@ -512,17 +565,35 @@ export default function FloorPlanCanvas() {
         onPointerUp={onPointerUp}
         onDoubleClick={onDoubleClick}
         onWheel={onWheel}
-        onContextMenu={(e) => {
-          e.preventDefault()
-          if (interaction.type === 'drawing') setInteraction({ type: 'idle' })
-        }}
+        onContextMenu={(e) => e.preventDefault()}
       />
+
+      {lenBox && (
+        <div className="len-editor" style={{ left: lenBox.x, top: lenBox.y }}>
+          <input
+            value={lenDraft}
+            onChange={(e) => setLenDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                commitLen()
+                ;(e.target as HTMLInputElement).blur()
+              }
+            }}
+            onBlur={commitLen}
+            title="Wall length — type a value and press Enter"
+          />
+          <span className="unit">{unit}</span>
+        </div>
+      )}
+
+      <div className="canvas-hint">
+        <b>Wall tool:</b> left-click to add points · right-click to finish &amp; switch to cursor
+        {orthoEnabled ? ' · ortho on (hold Shift for free angle)' : ''}
+      </div>
     </div>
   )
 }
 
-// ----------------------------------------------------------------------------
-// drawing helpers
 // ----------------------------------------------------------------------------
 function drawGrid(
   ctx: CanvasRenderingContext2D,
@@ -535,7 +606,6 @@ function drawGrid(
   if (step < 6) return
   const startX = camera.panX % step
   const startY = camera.panY % step
-
   ctx.strokeStyle = 'rgba(255,255,255,0.05)'
   ctx.lineWidth = 1
   ctx.beginPath()
@@ -548,8 +618,6 @@ function drawGrid(
     ctx.lineTo(size.w, y)
   }
   ctx.stroke()
-
-  // origin axes
   ctx.strokeStyle = 'rgba(120,160,255,0.18)'
   ctx.beginPath()
   ctx.moveTo(camera.panX, 0)

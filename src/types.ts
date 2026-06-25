@@ -67,7 +67,7 @@ export interface Product {
   price?: number
 }
 
-export type SelectionKind = 'wall' | 'opening' | 'item'
+export type SelectionKind = 'wall' | 'opening' | 'item' | 'room'
 
 export interface Selection {
   kind: SelectionKind

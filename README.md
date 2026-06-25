@@ -23,15 +23,25 @@ npm run typecheck  # types only
 ## What you can do
 
 **2D editor (the core)**
-- Draw chained walls — click to add segments, double-click / Esc / right-click to
-  finish. Walls snap to the grid and to existing corners.
+- Draw chained walls — **left-click** to add points, **right-click** to finish and
+  switch back to the cursor. Walls snap to the grid and to existing corners.
+- **Right-angle (ortho) snapping** keeps lines straight by default — hold
+  **Shift** for a free angle.
+- **Editable measurements**: select a wall and type its exact length right on the
+  plan (or in Properties). Resizing moves the shared corner so rooms stay closed.
+- **Rooms**: enclose an area with walls and it's detected automatically — the
+  floor area is shown and you can click the room to rename it.
+- Units default to **millimeters** (switch to meters in the top bar).
 - Add **doors** and **windows** by clicking on a wall (with swing/symbol drawn).
-- Drag walls, drag wall endpoints, and reposition openings along a wall.
+- Drag walls, drag wall corners, and reposition openings along a wall.
 - Place **catalog products** (cabinets, seating, tables, appliances) and move /
   rotate them.
-- Edit precise dimensions in the **Properties** panel.
-- Undo / redo, snap toggle, zoom & pan, and JSON **Import / Export**. The plan
-  auto-saves to your browser's local storage.
+- Undo / redo, snap & ortho toggles, zoom & pan, and JSON **Import / Export**.
+
+**Projects**
+- Create, switch, rename, and delete multiple named projects from the top bar.
+  Everything auto-saves to your browser's local storage. Persistence is isolated
+  in `src/lib/storage.ts` so it can be swapped for a cloud database later.
 
 **3D preview**
 - One click switches to a 3D view that extrudes walls to height and renders
