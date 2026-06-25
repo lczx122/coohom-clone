@@ -42,6 +42,25 @@ npm run typecheck  # types only
 - `R` rotate selected product · `Delete` remove selection
 - `Ctrl/Cmd+Z` undo · `Ctrl/Cmd+Shift+Z` redo
 
+## Deploying to Vercel
+
+This repo is configured for zero-config deploys to [Vercel](https://vercel.com)
+(see `vercel.json`). To get a live URL:
+
+1. Go to **https://vercel.com/new** and sign in with GitHub.
+2. **Import** the `lczx122/coohom-clone` repository.
+3. Vercel auto-detects the settings from `vercel.json`:
+   - Framework: **Vite**
+   - Build command: `npm run build`
+   - Output directory: `dist`
+4. Under **Branch**, you can deploy this feature branch
+   (`claude/dazzling-darwin-czbfth`) directly, or merge it to `main` first and
+   deploy that. Every later push to the connected branch redeploys automatically.
+5. Click **Deploy**. You'll get a public URL like
+   `https://coohom-clone.vercel.app`.
+
+No environment variables or secrets are required — it's a fully static build.
+
 ## Tailoring it to your company
 
 This is built to be re-skinned for a specific retailer:
