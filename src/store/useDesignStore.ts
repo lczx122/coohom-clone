@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import type {
+  CabinetModelTemplate,
+  CabinetSpec,
   DesignSnapshot,
   Opening,
   OpeningKind,
@@ -39,7 +41,14 @@ interface DesignState {
   tool: Tool
   selection: Selection | null
   placingProductId: string | null
+  /** when set, the next canvas click places a cabinet (model id, or '__new__') */
+  placingModelId: string | null
+  /** item id whose cabinet is open in the cabinet editor, or null */
+  editingItemId: string | null
   camera: Camera
+
+  // --- saved cabinet models ---
+  models: CabinetModelTemplate[]
 
   // --- grid / snapping / units ---
   gridSize: number
@@ -69,6 +78,15 @@ interface DesignState {
 
   addItem: (productId: string, position: Vec2) => string
   updateItem: (id: string, patch: Partial<PlacedItem>) => void
+
+  // cabinets
+  setPlacingModel: (modelId: string | null) => void
+  addCabinetItem: (spec: CabinetSpec, position: Vec2) => string
+  updateCabinet: (itemId: string, spec: CabinetSpec) => void
+  openCabinetEditor: (itemId: string) => void
+  closeCabinetEditor: () => void
+  saveModel: (spec: CabinetSpec) => void
+  deleteModel: (id: string) => void
 
   deleteSelection: () => void
 
@@ -129,6 +147,9 @@ export const useDesignStore = create<DesignState>((set, get) => {
     tool: 'wall',
     selection: null,
     placingProductId: null,
+    placingModelId: null,
+    editingItemId: null,
+    models: storage.listModels(),
     camera: { zoom: 1, panX: 480, panY: 320 },
 
     gridSize: 1,
@@ -143,7 +164,7 @@ export const useDesignStore = create<DesignState>((set, get) => {
     setTool: (tool) => set({ tool, selection: null }),
     setSelection: (selection) => set({ selection }),
     setPlacingProduct: (placingProductId) =>
-      set({ placingProductId, tool: placingProductId ? 'place' : 'select' }),
+      set({ placingProductId, placingModelId: null, tool: placingProductId ? 'place' : 'select' }),
 
     addWall: (start, end) => {
       const id = uid('wall')
@@ -221,6 +242,42 @@ export const useDesignStore = create<DesignState>((set, get) => {
     updateItem: (id, patch) => {
       set((s) => ({ ...checkpoint(), items: s.items.map((it) => (it.id === id ? { ...it, ...patch } : it)) }))
       save()
+    },
+
+    // ---- cabinets ----
+    setPlacingModel: (placingModelId) =>
+      set({ placingModelId, placingProductId: null, tool: placingModelId ? 'place' : 'select' }),
+
+    addCabinetItem: (spec, position) => {
+      const id = uid('item')
+      set((s) => ({
+        ...checkpoint(),
+        items: [...s.items, { id, productId: 'custom-cabinet', position, rotation: 0, cabinet: spec }],
+      }))
+      save()
+      return id
+    },
+
+    updateCabinet: (itemId, spec) => {
+      set((s) => ({
+        ...checkpoint(),
+        items: s.items.map((it) => (it.id === itemId ? { ...it, cabinet: spec } : it)),
+      }))
+      save()
+    },
+
+    openCabinetEditor: (editingItemId) => set({ editingItemId }),
+    closeCabinetEditor: () => set({ editingItemId: null }),
+
+    saveModel: (spec) => {
+      const model: CabinetModelTemplate = { id: uid('model'), spec: { ...spec } }
+      storage.saveModel(model)
+      set({ models: storage.listModels() })
+    },
+
+    deleteModel: (id) => {
+      storage.deleteModel(id)
+      set({ models: storage.listModels() })
     },
 
     deleteSelection: () => {

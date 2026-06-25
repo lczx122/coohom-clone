@@ -40,9 +40,9 @@ export default function StatusBar() {
         </span>
       </span>
       <div style={{ flex: 1 }} />
-      <label className="toggle">
+      <label className="toggle" title="When on, holding Shift while drawing snaps to right angles">
         <input type="checkbox" checked={orthoEnabled} onChange={(e) => setOrthoEnabled(e.target.checked)} />
-        Ortho
+        Ortho (Shift)
       </label>
       <label className="toggle">
         <input type="checkbox" checked={snapEnabled} onChange={(e) => setSnapEnabled(e.target.checked)} />

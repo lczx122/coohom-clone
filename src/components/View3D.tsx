@@ -3,6 +3,7 @@ import { OrbitControls, Grid } from '@react-three/drei'
 import { useMemo } from 'react'
 import { useDesignStore } from '../store/useDesignStore'
 import { productById } from '../data/catalog'
+import CabinetModel from './CabinetModel'
 import type { Wall } from '../types'
 
 // World plan coordinates: x -> x, y -> z (depth). Height -> y (up).
@@ -50,7 +51,6 @@ export default function View3D() {
   const items = useDesignStore((s) => s.items)
 
   const center = useMemo(() => {
-    if (walls.length === 0) return { x: 0, z: 0 }
     let sx = 0
     let sz = 0
     let n = 0
@@ -59,8 +59,14 @@ export default function View3D() {
       sz += w.start.y + w.end.y
       n += 2
     }
+    for (const it of items) {
+      sx += it.position.x
+      sz += it.position.y
+      n += 1
+    }
+    if (n === 0) return { x: 0, z: 0 }
     return { x: sx / n, z: sz / n }
-  }, [walls])
+  }, [walls, items])
 
   return (
     <div className="canvas-wrap">
@@ -95,6 +101,13 @@ export default function View3D() {
         ))}
 
         {items.map((it) => {
+          if (it.cabinet) {
+            return (
+              <group key={it.id} position={[it.position.x, 0, it.position.y]} rotation={[0, -it.rotation, 0]}>
+                <CabinetModel spec={it.cabinet} />
+              </group>
+            )
+          }
           const prod = productById(it.productId)
           if (!prod) return null
           return (

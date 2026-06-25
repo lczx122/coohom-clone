@@ -12,6 +12,17 @@ import {
 } from '../lib/geometry'
 import { detectRooms, pointInPolygon } from '../lib/rooms'
 import { formatArea, formatLength, lengthValue, toMeters } from '../lib/units'
+import { defaultCabinet } from '../data/cabinet'
+import type { PlacedItem } from '../types'
+
+/** Footprint + display info for a placed item (catalog product or cabinet). */
+function footprintOf(it: PlacedItem) {
+  if (it.cabinet) {
+    return { width: it.cabinet.width, depth: it.cabinet.depth, color: it.cabinet.color, name: it.cabinet.name }
+  }
+  const p = productById(it.productId)
+  return p ? { width: p.width, depth: p.depth, color: p.color, name: p.name } : null
+}
 
 const BASE_PPM = 100 // pixels per meter at zoom = 1
 
@@ -35,7 +46,7 @@ export default function FloorPlanCanvas() {
 
   const store = useDesignStore()
   const {
-    walls, openings, items, camera, tool, selection, placingProductId,
+    walls, openings, items, camera, tool, selection, placingProductId, placingModelId,
     snapEnabled, orthoEnabled, snapIncrement, gridSize, unit, roomNames,
   } = store
 
@@ -76,7 +87,8 @@ export default function FloorPlanCanvas() {
         if (ep) return ep
       }
       let p = raw
-      if (orthoEnabled && !shiftHeld) {
+      // right-angle (ortho) snap applies only while Shift is held
+      if (orthoEnabled && shiftHeld) {
         const dx = raw.x - anchor.x
         const dy = raw.y - anchor.y
         p = Math.abs(dx) >= Math.abs(dy) ? { x: raw.x, y: anchor.y } : { x: anchor.x, y: raw.y }
@@ -127,14 +139,14 @@ export default function FloorPlanCanvas() {
     (p: Vec2) => {
       for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i]
-        const prod = productById(it.productId)
-        if (!prod) continue
+        const fp = footprintOf(it)
+        if (!fp) continue
         const d = sub(p, it.position)
         const c = Math.cos(-it.rotation)
         const s = Math.sin(-it.rotation)
         const lx = d.x * c - d.y * s
         const ly = d.x * s + d.y * c
-        if (Math.abs(lx) <= prod.width / 2 && Math.abs(ly) <= prod.depth / 2) return it
+        if (Math.abs(lx) <= fp.width / 2 && Math.abs(ly) <= fp.depth / 2) return it
       }
       return null
     },
@@ -181,9 +193,25 @@ export default function FloorPlanCanvas() {
         return
       }
 
-      if (tool === 'place' && placingProductId) {
-        const id = store.addItem(placingProductId, snap(world))
-        store.setSelection({ kind: 'item', id })
+      if (tool === 'place' && (placingProductId || placingModelId)) {
+        const pos = snap(world)
+        if (placingModelId) {
+          if (placingModelId === '__new__') {
+            const id = store.addCabinetItem(defaultCabinet(), pos)
+            store.setSelection({ kind: 'item', id })
+            store.setPlacingModel(null)
+            store.openCabinetEditor(id)
+          } else {
+            const model = store.models.find((m) => m.id === placingModelId)
+            if (model) {
+              const id = store.addCabinetItem({ ...model.spec, accessories: model.spec.accessories.map((a) => ({ ...a })) }, pos)
+              store.setSelection({ kind: 'item', id })
+            }
+          }
+        } else if (placingProductId) {
+          const id = store.addItem(placingProductId, pos)
+          store.setSelection({ kind: 'item', id })
+        }
         return
       }
 
@@ -245,7 +273,7 @@ export default function FloorPlanCanvas() {
 
       store.setSelection(null)
     },
-    [tool, interaction, selection, walls, openings, camera, placingProductId, ppm, rooms, snap, snapDraw, screenToWorld, getMouse, itemAt, store],
+    [tool, interaction, selection, walls, openings, camera, placingProductId, placingModelId, ppm, rooms, snap, snapDraw, screenToWorld, getMouse, itemAt, store],
   )
 
   const onPointerMove = useCallback(
@@ -321,9 +349,21 @@ export default function FloorPlanCanvas() {
     [interaction, walls, store],
   )
 
-  const onDoubleClick = useCallback(() => {
-    if (interaction.type === 'drawing') setInteraction({ type: 'idle' })
-  }, [interaction])
+  const onDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (interaction.type === 'drawing') {
+        setInteraction({ type: 'idle' })
+        return
+      }
+      const world = screenToWorld(getMouse(e))
+      const it = itemAt(world)
+      if (it?.cabinet) {
+        store.setSelection({ kind: 'item', id: it.id })
+        store.openCabinetEditor(it.id)
+      }
+    },
+    [interaction, screenToWorld, getMouse, itemAt, store],
+  )
 
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
@@ -466,8 +506,8 @@ export default function FloorPlanCanvas() {
 
     // items
     for (const it of items) {
-      const prod = productById(it.productId)
-      if (!prod) continue
+      const fp = footprintOf(it)
+      if (!fp) continue
       let pos = it.position
       if (interaction.type === 'drag-item' && interaction.id === it.id) pos = interaction.current
       const c = worldToScreen(pos)
@@ -475,9 +515,9 @@ export default function FloorPlanCanvas() {
       ctx.save()
       ctx.translate(c.x, c.y)
       ctx.rotate(it.rotation)
-      const w = prod.width * ppm
-      const d = prod.depth * ppm
-      ctx.fillStyle = hexWithAlpha(prod.color, 0.85)
+      const w = fp.width * ppm
+      const d = fp.depth * ppm
+      ctx.fillStyle = hexWithAlpha(fp.color, 0.85)
       ctx.strokeStyle = selected ? '#2f6df6' : 'rgba(0,0,0,0.45)'
       ctx.lineWidth = selected ? 2.5 : 1.5
       ctx.beginPath()
@@ -491,7 +531,7 @@ export default function FloorPlanCanvas() {
       ctx.lineTo(w / 2, d / 2)
       ctx.stroke()
       ctx.restore()
-      if (camera.zoom > 0.45) drawLabel(ctx, prod.name, c.x, c.y)
+      if (camera.zoom > 0.45) drawLabel(ctx, fp.name, c.x, c.y)
     }
 
     // in-progress wall preview
@@ -512,21 +552,53 @@ export default function FloorPlanCanvas() {
       ctx.beginPath()
       ctx.arc(a.x, a.y, 4, 0, Math.PI * 2)
       ctx.fill()
+
+      // angle indicator vs. a wall connected at the anchor
+      const segLen = dist(interaction.anchor, snapped)
+      if (segLen > 1e-4) {
+        const newAng = Math.atan2(snapped.y - interaction.anchor.y, snapped.x - interaction.anchor.x)
+        let bestAng: number | null = null
+        let bestDiff = Infinity
+        for (const w of walls) {
+          let other: Vec2 | null = null
+          if (dist(w.start, interaction.anchor) <= 0.01) other = w.end
+          else if (dist(w.end, interaction.anchor) <= 0.01) other = w.start
+          if (!other) continue
+          const wallAng = Math.atan2(other.y - interaction.anchor.y, other.x - interaction.anchor.x)
+          let diff = Math.abs(newAng - wallAng)
+          while (diff > Math.PI) diff = Math.abs(diff - 2 * Math.PI)
+          if (diff < bestDiff) {
+            bestDiff = diff
+            bestAng = wallAng
+          }
+        }
+        if (bestAng !== null) drawAngleIndicator(ctx, a, bestAng, newAng)
+      }
     }
 
     // place-tool ghost
-    if (tool === 'place' && placingProductId) {
-      const prod = productById(placingProductId)
-      if (prod) {
+    if (tool === 'place' && (placingProductId || placingModelId)) {
+      let ghost: { width: number; depth: number; color: string } | null = null
+      if (placingModelId === '__new__') {
+        const c0 = defaultCabinet()
+        ghost = { width: c0.width, depth: c0.depth, color: c0.color }
+      } else if (placingModelId) {
+        const m = store.models.find((x) => x.id === placingModelId)
+        if (m) ghost = { width: m.spec.width, depth: m.spec.depth, color: m.spec.color }
+      } else if (placingProductId) {
+        const prod = productById(placingProductId)
+        if (prod) ghost = { width: prod.width, depth: prod.depth, color: prod.color }
+      }
+      if (ghost) {
         const c = worldToScreen(snap(mouseWorld))
         ctx.save()
         ctx.translate(c.x, c.y)
         ctx.globalAlpha = 0.5
-        ctx.fillStyle = prod.color
+        ctx.fillStyle = ghost.color
         ctx.strokeStyle = '#2f6df6'
         ctx.lineWidth = 1.5
         ctx.beginPath()
-        ctx.rect((-prod.width / 2) * ppm, (-prod.depth / 2) * ppm, prod.width * ppm, prod.depth * ppm)
+        ctx.rect((-ghost.width / 2) * ppm, (-ghost.depth / 2) * ppm, ghost.width * ppm, ghost.depth * ppm)
         ctx.fill()
         ctx.stroke()
         ctx.restore()
@@ -534,7 +606,7 @@ export default function FloorPlanCanvas() {
     }
   }, [
     size, walls, openings, items, camera, selection, interaction, mouseWorld,
-    tool, placingProductId, gridSize, ppm, unit, rooms, roomNames, worldToScreen, snap, snapDraw,
+    tool, placingProductId, placingModelId, gridSize, ppm, unit, rooms, roomNames, worldToScreen, snap, snapDraw, store,
   ])
 
   // inline editable length for the selected wall
@@ -587,8 +659,8 @@ export default function FloorPlanCanvas() {
       )}
 
       <div className="canvas-hint">
-        <b>Wall tool:</b> left-click to add points · right-click to finish &amp; switch to cursor
-        {orthoEnabled ? ' · ortho on (hold Shift for free angle)' : ''}
+        <b>Wall tool:</b> left-click to add points · right-click to finish &amp; switch to cursor ·
+        hold <b>Shift</b> to snap to right angles · double-click a cabinet to edit
       </div>
     </div>
   )
@@ -625,6 +697,42 @@ function drawGrid(
   ctx.moveTo(0, camera.panY)
   ctx.lineTo(size.w, camera.panY)
   ctx.stroke()
+}
+
+function drawAngleIndicator(
+  ctx: CanvasRenderingContext2D,
+  center: Vec2,
+  fromAng: number,
+  toAng: number,
+) {
+  const R = 28
+  let delta = toAng - fromAng
+  while (delta > Math.PI) delta -= 2 * Math.PI
+  while (delta < -Math.PI) delta += 2 * Math.PI
+  const deg = Math.abs((delta * 180) / Math.PI)
+
+  ctx.save()
+  ctx.strokeStyle = '#ffcf5c'
+  ctx.fillStyle = '#ffcf5c'
+  ctx.lineWidth = 1.5
+  // arc between the two directions
+  ctx.beginPath()
+  ctx.arc(center.x, center.y, R, fromAng, toAng, delta < 0)
+  ctx.stroke()
+  // label at the mid angle
+  const mid = fromAng + delta / 2
+  const lx = center.x + Math.cos(mid) * (R + 16)
+  const ly = center.y + Math.sin(mid) * (R + 16)
+  ctx.font = '600 12px -apple-system, system-ui, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  const text = `${deg.toFixed(1)}°`
+  const w = ctx.measureText(text).width + 8
+  ctx.fillStyle = 'rgba(15,17,21,0.85)'
+  ctx.fillRect(lx - w / 2, ly - 9, w, 18)
+  ctx.fillStyle = '#ffcf5c'
+  ctx.fillText(text, lx, ly)
+  ctx.restore()
 }
 
 function drawLabel(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {

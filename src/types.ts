@@ -47,6 +47,44 @@ export interface PlacedItem {
   position: Vec2
   /** rotation in radians (around vertical axis) */
   rotation: number
+  /** when present, this item is a custom parametric cabinet */
+  cabinet?: CabinetSpec
+}
+
+// --- Parametric cabinets -----------------------------------------------------
+
+export type DoorConfig = 'none' | 'single-left' | 'single-right' | 'double'
+
+export interface CabinetAccessory {
+  id: string
+  /** key into accessoryTypes (e.g. 'trash', 'dish-rack', 'drawer') */
+  type: string
+  /** vertical position as a fraction of interior height, 0 (bottom) .. 1 (top) */
+  level: number
+}
+
+export interface CabinetSpec {
+  name: string
+  /** all dimensions in meters */
+  width: number
+  height: number
+  depth: number
+  panelThickness: number
+  /** key into materials presets */
+  material: string
+  /** resolved carcass/door color (allows custom override of the preset) */
+  color: string
+  doors: DoorConfig
+  /** key into hingeTypes presets */
+  hingeType: string
+  shelves: number
+  accessories: CabinetAccessory[]
+}
+
+/** A reusable saved cabinet template. */
+export interface CabinetModelTemplate {
+  id: string
+  spec: CabinetSpec
 }
 
 /** Catalog product definition (the "company-tailored" inventory). */

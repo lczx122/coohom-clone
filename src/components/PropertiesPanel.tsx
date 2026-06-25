@@ -14,6 +14,7 @@ export default function PropertiesPanel() {
   const updateItem = useDesignStore((s) => s.updateItem)
   const deleteSelection = useDesignStore((s) => s.deleteSelection)
   const setRoomName = useDesignStore((s) => s.setRoomName)
+  const openCabinetEditor = useDesignStore((s) => s.openCabinetEditor)
 
   const step = unitStep(unit)
 
@@ -149,9 +150,68 @@ export default function PropertiesPanel() {
   // item
   const it = items.find((x) => x.id === selection.id)
   if (!it) return null
+  const deg = Math.round((it.rotation * 180) / Math.PI)
+
+  // custom cabinet
+  if (it.cabinet) {
+    const cab = it.cabinet
+    return (
+      <div className="props">
+        <div className="section-title">Cabinet</div>
+        <div className="field">
+          <label>Name</label>
+          <input value={cab.name} disabled />
+        </div>
+        <button className="icon-btn primary" style={{ width: '100%' }} onClick={() => openCabinetEditor(it.id)}>
+          Edit cabinet…
+        </button>
+        <div className="field" style={{ marginTop: 10 }}>
+          <label>Size (W × H × D)</label>
+          <input
+            value={`${lengthValue(cab.width, unit)} × ${lengthValue(cab.height, unit)} × ${lengthValue(cab.depth, unit)} ${unit}`}
+            disabled
+          />
+        </div>
+        <div className="row2">
+          <div className="field">
+            <label>X ({unit})</label>
+            <input
+              type="number"
+              step={step}
+              value={lengthValue(it.position.x, unit)}
+              onChange={(e) => updateItem(it.id, { position: { ...it.position, x: toMeters(+e.target.value, unit) } })}
+            />
+          </div>
+          <div className="field">
+            <label>Y ({unit})</label>
+            <input
+              type="number"
+              step={step}
+              value={lengthValue(it.position.y, unit)}
+              onChange={(e) => updateItem(it.id, { position: { ...it.position, y: toMeters(+e.target.value, unit) } })}
+            />
+          </div>
+        </div>
+        <div className="field">
+          <label>Rotation: {deg}°</label>
+          <input
+            type="range"
+            min="0"
+            max="360"
+            step="15"
+            value={((deg % 360) + 360) % 360}
+            onChange={(e) => updateItem(it.id, { rotation: (+e.target.value * Math.PI) / 180 })}
+          />
+        </div>
+        <button className="danger" onClick={deleteSelection}>
+          Delete cabinet
+        </button>
+      </div>
+    )
+  }
+
   const prod = productById(it.productId)
   if (!prod) return null
-  const deg = Math.round((it.rotation * 180) / Math.PI)
   return (
     <div className="props">
       <div className="section-title">Product</div>

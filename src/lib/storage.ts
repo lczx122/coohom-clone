@@ -1,4 +1,4 @@
-import type { DesignSnapshot } from '../types'
+import type { CabinetModelTemplate, DesignSnapshot } from '../types'
 import type { Unit } from './units'
 import { uid } from './geometry'
 
@@ -143,6 +143,26 @@ export function bootstrap(): ProjectData {
     return data
   }
   return createProject('Untitled Plan')
+}
+
+// ---------------------------------------------------------------------------
+// Saved cabinet models (reusable templates, shared across all projects).
+// ---------------------------------------------------------------------------
+
+const MODELS_KEY = 'floorplanner.models'
+
+export function listModels(): CabinetModelTemplate[] {
+  return read<CabinetModelTemplate[]>(MODELS_KEY) ?? []
+}
+
+export function saveModel(model: CabinetModelTemplate) {
+  const models = listModels().filter((m) => m.id !== model.id)
+  models.push(model)
+  write(MODELS_KEY, models)
+}
+
+export function deleteModel(id: string) {
+  write(MODELS_KEY, listModels().filter((m) => m.id !== id))
 }
 
 // Date.now is fine in the app (browser); guarded only to be safe.

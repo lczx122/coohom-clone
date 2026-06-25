@@ -25,8 +25,9 @@ npm run typecheck  # types only
 **2D editor (the core)**
 - Draw chained walls — **left-click** to add points, **right-click** to finish and
   switch back to the cursor. Walls snap to the grid and to existing corners.
-- **Right-angle (ortho) snapping** keeps lines straight by default — hold
-  **Shift** for a free angle.
+- Draw at any angle freely; **hold Shift** to snap to right angles. When the new
+  segment starts at an existing corner, a live **angle indicator** shows the
+  angle between the two walls.
 - **Editable measurements**: select a wall and type its exact length right on the
   plan (or in Properties). Resizing moves the shared corner so rooms stay closed.
 - **Rooms**: enclose an area with walls and it's detected automatically — the
@@ -37,6 +38,19 @@ npm run typecheck  # types only
 - Place **catalog products** (cabinets, seating, tables, appliances) and move /
   rotate them.
 - Undo / redo, snap & ortho toggles, zoom & pan, and JSON **Import / Export**.
+
+**Cabinet maker**
+- Place a **custom cabinet** (sidebar → *Custom Cabinets → + New cabinet*) and
+  double-click it (or *Edit cabinet…*) to open the **Cabinet Editor**.
+- Live 3D preview while you configure: width / height / depth, panel thickness,
+  **material & color**, **doors** (none / single-left / single-right / double)
+  and **hinge type**, shelves, and **accessories** (drawer, pull-out trash bin,
+  dish basket, cutlery tray, wine rack, baskets, spice pull-out) with a height
+  slider each. A running price estimate updates as you build.
+- **Save as Model** stores the cabinet under *My Cabinets* so you can drop more
+  copies onto any plan. Models persist across projects.
+- Configuration lives in `src/data/cabinet.ts` (materials, hinges, accessories);
+  the 3D renderer is `src/components/CabinetModel.tsx`.
 
 **Projects**
 - Create, switch, rename, and delete multiple named projects from the top bar.

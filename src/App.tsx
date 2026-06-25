@@ -5,6 +5,7 @@ import PropertiesPanel from './components/PropertiesPanel'
 import FloorPlanCanvas from './components/FloorPlanCanvas'
 import View3D from './components/View3D'
 import StatusBar from './components/StatusBar'
+import CabinetEditor from './components/CabinetEditor'
 import { useDesignStore } from './store/useDesignStore'
 
 export default function App() {
@@ -83,6 +84,7 @@ export default function App() {
       {view === '2d' ? <FloorPlanCanvas /> : <View3D />}
       <PropertiesPanel />
       <StatusBar />
+      <CabinetEditor />
     </div>
   )
 }
