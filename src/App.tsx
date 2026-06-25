@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Toolbar from './components/Toolbar'
 import Catalog from './components/Catalog'
 import PropertiesPanel from './components/PropertiesPanel'
@@ -7,6 +7,7 @@ import View3D from './components/View3D'
 import StatusBar from './components/StatusBar'
 import CabinetEditor from './components/CabinetEditor'
 import { useDesignStore } from './store/useDesignStore'
+import type { Tool } from './types'
 
 export default function App() {
   const [view, setView] = useState<'2d' | '3d'>('2d')
@@ -15,11 +16,28 @@ export default function App() {
   const undo = useDesignStore((s) => s.undo)
   const redo = useDesignStore((s) => s.redo)
 
+  // hold-Space-to-pan bookkeeping (2D only)
+  const spaceActive = useRef(false)
+  const prevTool = useRef<Tool>('select')
+
   useEffect(() => {
+    const isTyping = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null
+      return !!el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA')
+    }
+
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement
-      // don't hijack typing in inputs
-      if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') {
+      if (isTyping(e.target)) return
+
+      // Hold Space -> temporary pan, restoring the previous tool on release (2D only)
+      if (e.code === 'Space' && view === '2d') {
+        e.preventDefault()
+        if (!spaceActive.current) {
+          spaceActive.current = true
+          prevTool.current = useDesignStore.getState().tool
+          // set tool without clearing the current selection
+          useDesignStore.setState({ tool: 'pan' })
+        }
         return
       }
 
@@ -34,6 +52,14 @@ export default function App() {
         redo()
         return
       }
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        deleteSelection()
+        return
+      }
+
+      // tool shortcuts only apply in 2D (W/A/S/D drive the camera in 3D)
+      if (view !== '2d') return
 
       switch (e.key) {
         case 'v':
@@ -56,10 +82,6 @@ export default function App() {
         case 'H':
           setTool('pan')
           break
-        case 'Delete':
-        case 'Backspace':
-          deleteSelection()
-          break
         case 'r':
         case 'R': {
           const st = useDesignStore.getState()
@@ -73,9 +95,21 @@ export default function App() {
           break
       }
     }
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && spaceActive.current) {
+        spaceActive.current = false
+        useDesignStore.setState({ tool: prevTool.current })
+      }
+    }
+
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [setTool, deleteSelection, undo, redo])
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [setTool, deleteSelection, undo, redo, view])
 
   return (
     <div className="app">

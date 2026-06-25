@@ -28,6 +28,7 @@ npm run typecheck  # types only
 - Draw at any angle freely; **hold Shift** to snap to right angles. When the new
   segment starts at an existing corner, a live **angle indicator** shows the
   angle between the two walls.
+- **Hold Space** to temporarily pan; release to return to your previous tool.
 - **Editable measurements**: select a wall and type its exact length right on the
   plan (or in Properties). Resizing moves the shared corner so rooms stay closed.
 - **Rooms**: enclose an area with walls and it's detected automatically — the
@@ -59,7 +60,10 @@ npm run typecheck  # types only
 
 **3D preview**
 - One click switches to a 3D view that extrudes walls to height and renders
-  placed products as solids. Orbit / zoom / pan with the mouse.
+  placed products and cabinets as solids.
+- **Move the camera freely**: **WASD** to move, **Q/E** for up/down, **Shift**
+  to move faster, mouse-drag to look, scroll to zoom.
+- Enclosed rooms get **standard wood flooring** automatically.
 
 **Keyboard shortcuts**
 - `V` select · `W` wall · `D` door · `N` window · `H` pan
