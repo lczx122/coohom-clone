@@ -73,6 +73,10 @@ npm run typecheck  # types only
   placed products and cabinets as solids.
 - **Move the camera freely**: **WASD** to move, **Q/E** for up/down, **Shift**
   to move faster, mouse-drag to look, scroll to zoom.
+- **Sketch a cabinet in 3D**: toggle **✎ Sketch** to freeze the camera, then
+  draw a box on the frozen view (mouse or stylus). The stroke is ray-cast into
+  the scene and a cabinet is generated live where you drew it — sized from the
+  box and standing on the floor, facing the camera. Toggle off to move again.
 - Enclosed rooms get flooring (per-room choice), point-lights illuminate the
   scene, and you can switch between a **Studio** backdrop and an **Outdoor**
   environment with a procedural sky.

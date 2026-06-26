@@ -1,18 +1,98 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Grid, Sky } from '@react-three/drei'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { useDesignStore } from '../store/useDesignStore'
 import { productById } from '../data/catalog'
 import { detectRooms } from '../lib/rooms'
 import { DEFAULT_FLOORING, flooringByKey, floorings } from '../data/flooring'
 import type { FloorKind } from '../data/flooring'
+import { defaultCabinet } from '../data/cabinet'
 import CabinetModel from './CabinetModel'
-import type { PlacedItem, Wall } from '../types'
+import type { CabinetSpec, PlacedItem, Vec2, Wall } from '../types'
 
 const DEFAULT_WALL_COLOR = '#d6dae0'
 
 // Plan coordinates map to 3D as: world.x -> x, world.y -> z (depth), height -> y.
+
+// ---------------------------------------------------------------------------
+// 3D sketch-to-cabinet: transcribe a 2D screen stroke into a cabinet by
+// ray-casting onto the floor and reading width/height from the drawn box.
+// ---------------------------------------------------------------------------
+interface SketchPreview {
+  spec: CabinetSpec
+  position: Vec2
+  rotation: number
+}
+
+const FLOOR_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
+const RAY = new THREE.Raycaster()
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+
+function screenToFloor(px: number, py: number, rect: { width: number; height: number }, camera: THREE.Camera) {
+  const ndc = new THREE.Vector2((px / rect.width) * 2 - 1, -(py / rect.height) * 2 + 1)
+  RAY.setFromCamera(ndc, camera)
+  const out = new THREE.Vector3()
+  return RAY.ray.intersectPlane(FLOOR_PLANE, out) ? out : null
+}
+
+function worldToScreenPt(v: THREE.Vector3, rect: { width: number; height: number }, camera: THREE.Camera) {
+  const p = v.clone().project(camera)
+  return { x: (p.x * 0.5 + 0.5) * rect.width, y: (-p.y * 0.5 + 0.5) * rect.height }
+}
+
+function transcribeStroke(
+  stroke: { x: number; y: number }[],
+  rect: { width: number; height: number },
+  camera: THREE.Camera,
+): SketchPreview | null {
+  if (stroke.length < 2) return null
+  const xs = stroke.map((p) => p.x)
+  const ys = stroke.map((p) => p.y)
+  const minX = Math.min(...xs)
+  const maxX = Math.max(...xs)
+  const minY = Math.min(...ys)
+  const maxY = Math.max(...ys)
+  if (maxX - minX < 8 || maxY - minY < 8) return null
+
+  const base = screenToFloor((minX + maxX) / 2, maxY, rect, camera)
+  const left = screenToFloor(minX, maxY, rect, camera)
+  const right = screenToFloor(maxX, maxY, rect, camera)
+  if (!base || !left || !right) return null
+
+  const width = clamp(Math.hypot(left.x - right.x, left.z - right.z), 0.2, 4)
+
+  const sBase = worldToScreenPt(base, rect, camera)
+  const sUp = worldToScreenPt(base.clone().add(new THREE.Vector3(0, 1, 0)), rect, camera)
+  let pxPerMeter = Math.abs(sBase.y - sUp.y)
+  if (pxPerMeter < 2) pxPerMeter = 120
+  const height = clamp((maxY - minY) / pxPerMeter, 0.2, 3)
+
+  const fwd = new THREE.Vector3()
+  camera.getWorldDirection(fwd)
+  fwd.y = 0
+  if (fwd.lengthSq() < 1e-6) return null
+  fwd.normalize()
+
+  const depth = 0.6
+  const center = { x: base.x + (fwd.x * depth) / 2, z: base.z + (fwd.z * depth) / 2 }
+  const rotation = Math.atan2(fwd.x, -fwd.z) // cabinet front faces the camera
+
+  return {
+    spec: { ...defaultCabinet('Cabinet'), width, height, depth },
+    position: { x: center.x, y: center.z },
+    rotation,
+  }
+}
+
+/** Keeps a live reference to the R3F camera for the screen-space overlay. */
+function CameraTap({ camRef }: { camRef: React.MutableRefObject<THREE.Camera | null> }) {
+  useFrame(({ camera }) => {
+    camRef.current = camera
+  })
+  return null
+}
 
 function WallMesh({ wall }: { wall: Wall }) {
   const dx = wall.end.x - wall.start.x
@@ -217,6 +297,93 @@ export default function View3D() {
   const items = useDesignStore((s) => s.items)
   const environment = useDesignStore((s) => s.environment)
   const setEnvironment = useDesignStore((s) => s.setEnvironment)
+  const addCabinetItem = useDesignStore((s) => s.addCabinetItem)
+  const updateItem = useDesignStore((s) => s.updateItem)
+
+  // 3D sketch-to-cabinet
+  const [sketch3d, setSketch3d] = useState(false)
+  const [preview, setPreview] = useState<SketchPreview | null>(null)
+  const camRef = useRef<THREE.Camera | null>(null)
+  const overlayRef = useRef<HTMLCanvasElement | null>(null)
+  const strokeRef = useRef<{ x: number; y: number }[]>([])
+  const drawingRef = useRef(false)
+
+  // size the drawing overlay to the canvas when sketch mode turns on
+  useEffect(() => {
+    if (!sketch3d) {
+      setPreview(null)
+      strokeRef.current = []
+      return
+    }
+    const cv = overlayRef.current
+    const wrap = cv?.parentElement
+    if (cv && wrap) {
+      cv.width = wrap.clientWidth
+      cv.height = wrap.clientHeight
+    }
+  }, [sketch3d])
+
+  const redrawOverlay = () => {
+    const cv = overlayRef.current
+    if (!cv) return
+    const ctx = cv.getContext('2d')!
+    ctx.clearRect(0, 0, cv.width, cv.height)
+    const pts = strokeRef.current
+    if (pts.length < 2) return
+    ctx.strokeStyle = '#2f6df6'
+    ctx.lineWidth = 2.5
+    ctx.lineJoin = 'round'
+    ctx.beginPath()
+    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)))
+    ctx.stroke()
+    const xs = pts.map((p) => p.x)
+    const ys = pts.map((p) => p.y)
+    ctx.strokeStyle = 'rgba(47,109,246,0.45)'
+    ctx.setLineDash([5, 4])
+    ctx.strokeRect(Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys))
+    ctx.setLineDash([])
+  }
+
+  const relPoint = (e: React.PointerEvent) => {
+    const rect = overlayRef.current!.getBoundingClientRect()
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top, rect }
+  }
+
+  const onSketchDown = (e: React.PointerEvent) => {
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    const { x, y } = relPoint(e)
+    strokeRef.current = [{ x, y }]
+    drawingRef.current = true
+  }
+
+  const onSketchMove = (e: React.PointerEvent) => {
+    if (!drawingRef.current) return
+    const { x, y, rect } = relPoint(e)
+    const last = strokeRef.current[strokeRef.current.length - 1]
+    if (last && Math.hypot(x - last.x, y - last.y) < 2) return
+    strokeRef.current.push({ x, y })
+    redrawOverlay()
+    if (camRef.current) setPreview(transcribeStroke(strokeRef.current, rect, camRef.current))
+  }
+
+  const onSketchUp = (e: React.PointerEvent) => {
+    if (!drawingRef.current) return
+    drawingRef.current = false
+    try {
+      ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+    } catch {
+      /* pointer already released */
+    }
+    const rect = overlayRef.current!.getBoundingClientRect()
+    const result = camRef.current ? transcribeStroke(strokeRef.current, rect, camRef.current) : null
+    if (result) {
+      const id = addCabinetItem(result.spec, result.position)
+      updateItem(id, { rotation: result.rotation })
+    }
+    strokeRef.current = []
+    setPreview(null)
+    redrawOverlay()
+  }
 
   const center = useMemo(() => {
     let sx = 0
@@ -318,22 +485,57 @@ export default function View3D() {
           )
         })}
 
-        <OrbitControls target={[center.x, 1, center.z]} makeDefault />
-        <WasdControls />
+        {/* live preview of the sketched cabinet */}
+        {preview && (
+          <group position={[preview.position.x, 0, preview.position.y]} rotation={[0, -preview.rotation, 0]}>
+            <CabinetModel spec={preview.spec} />
+          </group>
+        )}
+
+        <CameraTap camRef={camRef} />
+        <OrbitControls enabled={!sketch3d} target={[center.x, 1, center.z]} makeDefault />
+        {!sketch3d && <WasdControls />}
       </Canvas>
 
+      {sketch3d && (
+        <canvas
+          ref={overlayRef}
+          className="sketch3d-overlay"
+          onPointerDown={onSketchDown}
+          onPointerMove={onSketchMove}
+          onPointerUp={onSketchUp}
+        />
+      )}
+
       <div className="view-env">
-        <button className={`tool-btn ${!outdoor ? 'active' : ''}`} onClick={() => setEnvironment('studio')} style={{ minWidth: 56 }}>
+        <button
+          className={`tool-btn ${sketch3d ? 'active' : ''}`}
+          onClick={() => setSketch3d((v) => !v)}
+          style={{ minWidth: 64 }}
+          title="Freeze the view and sketch a cabinet"
+        >
+          ✎ Sketch
+        </button>
+        <button className={`tool-btn ${!outdoor ? 'active' : ''}`} onClick={() => setEnvironment('studio')} style={{ minWidth: 56 }} disabled={sketch3d}>
           Studio
         </button>
-        <button className={`tool-btn ${outdoor ? 'active' : ''}`} onClick={() => setEnvironment('outdoor')} style={{ minWidth: 56 }}>
+        <button className={`tool-btn ${outdoor ? 'active' : ''}`} onClick={() => setEnvironment('outdoor')} style={{ minWidth: 56 }} disabled={sketch3d}>
           Outdoor
         </button>
       </div>
 
       <div className="canvas-hint">
-        <b>3D view</b> · <b>WASD</b> to move · <b>Q/E</b> up/down · Shift to go faster ·
-        drag to look · scroll to zoom
+        {sketch3d ? (
+          <>
+            <b>Sketch a cabinet:</b> the view is frozen — draw a box where you want it and
+            a cabinet is generated in 3D. Toggle <b>✎ Sketch</b> off to move the camera again.
+          </>
+        ) : (
+          <>
+            <b>3D view</b> · <b>WASD</b> to move · <b>Q/E</b> up/down · Shift to go faster ·
+            drag to look · scroll to zoom
+          </>
+        )}
       </div>
     </div>
   )

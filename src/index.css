@@ -447,11 +447,22 @@ button {
   white-space: nowrap;
 }
 
+/* ---------- 3D sketch overlay ---------- */
+.sketch3d-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  cursor: crosshair;
+  touch-action: none;
+  background: rgba(47, 109, 246, 0.04);
+}
+
 /* ---------- 3D environment toggle ---------- */
 .view-env {
   position: absolute;
   right: 12px;
   top: 12px;
+  z-index: 6;
   display: flex;
   gap: 4px;
   background: var(--panel-2);
