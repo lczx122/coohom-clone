@@ -17,6 +17,7 @@ import { dist, uid } from '../lib/geometry'
 import type { Unit } from '../lib/units'
 import * as storage from '../lib/storage'
 import type { ProjectMeta } from '../lib/storage'
+import * as sync from '../lib/sync'
 import { buildSample } from '../data/samples'
 
 interface Camera {
@@ -105,6 +106,9 @@ interface DesignState {
   // samples
   loadSample: (key: string) => void
 
+  /** Re-read projects/models/current project from local storage (after a cloud sync). */
+  reloadFromStorage: () => void
+
   deleteSelection: () => void
 
   setCamera: (patch: Partial<Camera>) => void
@@ -151,6 +155,7 @@ export const useDesignStore = create<DesignState>((set, get) => {
       environment: s.environment,
     })
     set({ projects: storage.listProjects() })
+    sync.pushProject(s.currentProjectId)
   }
 
   return {
@@ -295,11 +300,13 @@ export const useDesignStore = create<DesignState>((set, get) => {
       const model: CabinetModelTemplate = { id: uid('model'), spec: { ...spec } }
       storage.saveModel(model)
       set({ models: storage.listModels() })
+      sync.pushModel(model.id)
     },
 
     deleteModel: (id) => {
       storage.deleteModel(id)
       set({ models: storage.listModels() })
+      sync.deleteModel(id)
     },
 
     // ---- lights & environment ----
@@ -344,6 +351,7 @@ export const useDesignStore = create<DesignState>((set, get) => {
       }
       storage.saveProject(full)
       storage.setCurrentId(full.meta.id)
+      sync.pushProject(full.meta.id)
       set({
         walls: full.snapshot.walls,
         openings: full.snapshot.openings,
@@ -355,6 +363,26 @@ export const useDesignStore = create<DesignState>((set, get) => {
         currentProjectId: full.meta.id,
         currentProjectName: full.meta.name,
         projects: storage.listProjects(),
+        selection: null,
+        past: [],
+        future: [],
+      })
+    },
+
+    reloadFromStorage: () => {
+      const data = storage.bootstrap()
+      set({
+        walls: data.snapshot.walls,
+        openings: data.snapshot.openings,
+        items: data.snapshot.items,
+        roomNames: data.roomNames ?? {},
+        roomFloors: data.roomFloors ?? {},
+        environment: data.environment ?? 'studio',
+        unit: data.unit ?? 'mm',
+        currentProjectId: data.meta.id,
+        currentProjectName: data.meta.name,
+        projects: storage.listProjects(),
+        models: storage.listModels(),
         selection: null,
         past: [],
         future: [],
@@ -400,6 +428,7 @@ export const useDesignStore = create<DesignState>((set, get) => {
     // ---- projects ----
     newProject: (name) => {
       const data = storage.createProject(name || 'Untitled Plan')
+      sync.pushProject(data.meta.id)
       set({
         walls: [],
         openings: [],
@@ -427,6 +456,7 @@ export const useDesignStore = create<DesignState>((set, get) => {
         unit: s.unit,
         environment: s.environment,
       })
+      sync.pushProject(s.currentProjectId)
       const data = storage.loadProject(id)
       if (!data) return
       storage.setCurrentId(id)
@@ -449,6 +479,7 @@ export const useDesignStore = create<DesignState>((set, get) => {
 
     renameProject: (id, name) => {
       storage.renameProject(id, name)
+      sync.pushProject(id)
       set((s) => ({
         projects: storage.listProjects(),
         currentProjectName: s.currentProjectId === id ? name : s.currentProjectName,
@@ -457,6 +488,7 @@ export const useDesignStore = create<DesignState>((set, get) => {
 
     deleteProject: (id) => {
       storage.deleteProject(id)
+      sync.deleteProject(id)
       const remaining = storage.listProjects()
       if (get().currentProjectId === id) {
         if (remaining.length > 0) {

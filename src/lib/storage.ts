@@ -68,12 +68,22 @@ export function setCurrentId(id: string) {
   write(CURRENT_KEY, id)
 }
 
-export function saveProject(data: ProjectData) {
-  data.meta.updatedAt = nowSafe()
+/** Write a project to local storage verbatim (without touching updatedAt). */
+export function putProject(data: ProjectData) {
   write(projectKey(data.meta.id), data)
   const metas = listProjects().filter((m) => m.id !== data.meta.id)
   metas.push(data.meta)
   writeIndex(metas)
+}
+
+export function saveProject(data: ProjectData) {
+  data.meta.updatedAt = nowSafe()
+  putProject(data)
+}
+
+/** Write a cabinet model to local storage verbatim. */
+export function putModel(model: CabinetModelTemplate) {
+  saveModel(model)
 }
 
 export function createProject(name: string): ProjectData {

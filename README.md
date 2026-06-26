@@ -82,6 +82,26 @@ npm run typecheck  # types only
 - `R` rotate selected product · `Delete` remove selection
 - `Ctrl/Cmd+Z` undo · `Ctrl/Cmd+Shift+Z` redo
 
+## Cloud sync & accounts (optional)
+
+By default everything is saved locally in your browser. To enable **user
+accounts** and **cloud-synced projects & cabinet models** across devices, add a
+free [Supabase](https://supabase.com) project and set two environment variables
+(`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`). When they're unset the app runs
+in local-only mode exactly as before.
+
+Full setup — SQL schema, auth config, and Vercel env vars — is in
+[`docs/SUPABASE.md`](docs/SUPABASE.md). In short:
+
+1. Create a Supabase project and run the SQL from the doc (tables + row-level
+   security).
+2. Enable email auth (optionally turn off email confirmation for quick testing).
+3. Put your Project URL + anon key in `.env.local` (local) and in Vercel's
+   Environment Variables (production), then redeploy.
+
+Once configured, the app shows a sign-in / create-account screen; local and
+cloud data are merged on login and changes sync automatically.
+
 ## Deploying to Vercel
 
 This repo is configured for zero-config deploys to [Vercel](https://vercel.com)

@@ -278,6 +278,132 @@ button {
   padding: 4px;
 }
 
+/* ---------- Auth ---------- */
+.auth-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 30%, #161b24, #0c0e12 70%);
+}
+.auth-splash {
+  color: var(--text-dim);
+  font-size: 14px;
+}
+.auth-card {
+  width: 360px;
+  max-width: 92vw;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.auth-brand {
+  font-size: 22px;
+  font-weight: 800;
+}
+.auth-sub {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-bottom: 18px;
+}
+.auth-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.auth-tabs button {
+  flex: 1;
+  padding: 8px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+}
+.auth-tabs button.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+.auth-field {
+  display: block;
+  margin-bottom: 12px;
+}
+.auth-field span {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 5px;
+}
+.auth-field input {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 14px;
+}
+.auth-error {
+  background: #3a1d22;
+  border: 1px solid #5e2a30;
+  color: #ff9aa2;
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.auth-note {
+  background: #1d2a1f;
+  border: 1px solid #2e5e34;
+  color: #9ae0a2;
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.auth-submit {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  background: var(--brand);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.auth-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.auth-foot {
+  margin-top: 14px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 6px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+.account-email {
+  font-size: 11px;
+  color: var(--text-dim);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- 3D environment toggle ---------- */
 .view-env {
   position: absolute;

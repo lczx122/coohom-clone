@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import { useDesignStore } from '../store/useDesignStore'
+import { useAuthStore } from '../store/useAuthStore'
 import { company } from '../config/company'
 import { sampleList } from '../data/samples'
 import type { Tool } from '../types'
@@ -39,6 +40,11 @@ export default function Toolbar({
   const renameProject = useDesignStore((s) => s.renameProject)
   const deleteProject = useDesignStore((s) => s.deleteProject)
   const loadSample = useDesignStore((s) => s.loadSample)
+
+  const authStatus = useAuthStore((s) => s.status)
+  const authEmail = useAuthStore((s) => s.email)
+  const syncing = useAuthStore((s) => s.syncing)
+  const signOut = useAuthStore((s) => s.signOut)
 
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -191,6 +197,17 @@ export default function Toolbar({
           3D
         </button>
       </div>
+
+      {authStatus === 'signedIn' && (
+        <div className="account">
+          <span className="account-email" title={authEmail ?? ''}>
+            {syncing ? 'Syncing…' : authEmail}
+          </span>
+          <button className="icon-btn" onClick={() => signOut()} title="Sign out">
+            Sign out
+          </button>
+        </div>
+      )}
     </div>
   )
 }

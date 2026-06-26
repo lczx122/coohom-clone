@@ -6,7 +6,9 @@ import FloorPlanCanvas from './components/FloorPlanCanvas'
 import View3D from './components/View3D'
 import StatusBar from './components/StatusBar'
 import CabinetEditor from './components/CabinetEditor'
+import AuthGate from './components/AuthGate'
 import { useDesignStore } from './store/useDesignStore'
+import { useAuthStore } from './store/useAuthStore'
 import type { Tool } from './types'
 
 export default function App() {
@@ -15,6 +17,12 @@ export default function App() {
   const deleteSelection = useDesignStore((s) => s.deleteSelection)
   const undo = useDesignStore((s) => s.undo)
   const redo = useDesignStore((s) => s.redo)
+
+  const authStatus = useAuthStore((s) => s.status)
+  const initAuth = useAuthStore((s) => s.init)
+  useEffect(() => {
+    initAuth()
+  }, [initAuth])
 
   // hold-Space-to-pan bookkeeping (2D only)
   const spaceActive = useRef(false)
@@ -110,6 +118,13 @@ export default function App() {
       window.removeEventListener('keyup', onKeyUp)
     }
   }, [setTool, deleteSelection, undo, redo, view])
+
+  if (authStatus === 'loading') {
+    return <div className="auth-screen"><div className="auth-splash">Loading…</div></div>
+  }
+  if (authStatus === 'signedOut') {
+    return <AuthGate />
+  }
 
   return (
     <div className="app">
