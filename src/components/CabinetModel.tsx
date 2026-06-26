@@ -1,9 +1,11 @@
-import { useMemo } from 'react'
 import type { CabinetSpec } from '../types'
 import { accessoryType } from '../data/cabinet'
 
 // Renders a parametric cabinet from a CabinetSpec. The cabinet sits with its
 // base on y=0 and is centred on x/z. Reused by the editor preview and View3D.
+
+const GAP = 0.004
+const TD = 0.018 // door / drawer-front thickness
 
 function Panel({
   size,
@@ -27,8 +29,8 @@ function Door({
   dirSign,
   width,
   height,
+  yCenter,
   z,
-  thickness,
   color,
   open,
 }: {
@@ -36,27 +38,24 @@ function Door({
   dirSign: 1 | -1
   width: number
   height: number
+  yCenter: number
   z: number
-  thickness: number
   color: string
   open: boolean
 }) {
-  const angle = open ? dirSign * (-1.7) : 0 // ~97° swing
+  const angle = open ? dirSign * -1.7 : 0
   return (
-    <group position={[hingeX, height / 2 + 0, z]} rotation={[0, angle, 0]}>
-      {/* door panel, extends from the hinge in dirSign direction */}
+    <group position={[hingeX, yCenter, z]} rotation={[0, angle, 0]}>
       <mesh position={[(dirSign * width) / 2, 0, 0]} castShadow>
-        <boxGeometry args={[width, height, thickness]} />
+        <boxGeometry args={[width, height, TD]} />
         <meshStandardMaterial color={color} roughness={0.5} metalness={0.05} />
       </mesh>
-      {/* handle near the free edge */}
-      <mesh position={[dirSign * (width - 0.03), 0, thickness / 2 + 0.012]}>
+      <mesh position={[dirSign * (width - 0.03), 0, TD / 2 + 0.012]}>
         <boxGeometry args={[0.018, Math.min(0.12, height * 0.25), 0.018]} />
         <meshStandardMaterial color="#cfd3d8" metalness={0.8} roughness={0.3} />
       </mesh>
-      {/* hinges on the hinge axis */}
       {[-1, 1].map((s) => (
-        <mesh key={s} position={[0, s * (height / 2 - 0.08), -thickness / 2]} rotation={[0, 0, Math.PI / 2]}>
+        <mesh key={s} position={[0, s * (height / 2 - 0.08), -TD / 2]} rotation={[0, 0, Math.PI / 2]}>
           <cylinderGeometry args={[0.012, 0.012, 0.05, 12]} />
           <meshStandardMaterial color="#b8bcc2" metalness={0.85} roughness={0.25} />
         </mesh>
@@ -65,31 +64,64 @@ function Door({
   )
 }
 
+function DrawerFront({
+  cx,
+  width,
+  height,
+  yCenter,
+  z,
+  color,
+}: {
+  cx: number
+  width: number
+  height: number
+  yCenter: number
+  z: number
+  color: string
+}) {
+  return (
+    <group position={[cx, yCenter, z]}>
+      <mesh castShadow>
+        <boxGeometry args={[width, height, TD]} />
+        <meshStandardMaterial color={color} roughness={0.5} metalness={0.05} />
+      </mesh>
+      {/* bar handle near the top of the front */}
+      <mesh position={[0, height / 2 - 0.045, TD / 2 + 0.012]}>
+        <boxGeometry args={[Math.min(0.28, width * 0.55), 0.018, 0.018]} />
+        <meshStandardMaterial color="#cfd3d8" metalness={0.8} roughness={0.3} />
+      </mesh>
+    </group>
+  )
+}
+
 function Accessory({
   typeKey,
-  W,
-  H,
+  cx,
+  segW,
   D,
   t,
+  yBottom,
+  interiorH,
   level,
 }: {
   typeKey: string
-  W: number
-  H: number
+  cx: number
+  segW: number
   D: number
   t: number
+  yBottom: number
+  interiorH: number
   level: number
 }) {
   const at = accessoryType(typeKey)
   const color = at?.color ?? '#b0b4ba'
-  const innerW = W - 2 * t - 0.02
+  const innerW = Math.max(0.05, segW - 0.02)
   const innerD = D - 2 * t - 0.02
-  const y = t + 0.02 + level * Math.max(0.01, H - 2 * t - 0.2)
 
   if (typeKey === 'trash') {
     const r = Math.min(innerW, innerD) / 2.6
     return (
-      <mesh position={[0, t + 0.2, 0]} castShadow>
+      <mesh position={[cx, yBottom + 0.2, 0]} castShadow>
         <cylinderGeometry args={[r, r * 0.85, 0.4, 20]} />
         <meshStandardMaterial color={color} metalness={0.5} roughness={0.4} />
       </mesh>
@@ -110,66 +142,155 @@ function Accessory({
     case 'cutlery':
       size = [innerW, 0.04, innerD * 0.7]
       break
-    default: // dish-rack, basket
+    default:
       size = [innerW, 0.1, innerD]
   }
+  const y = yBottom + level * Math.max(0.01, interiorH - size[1]) + size[1] / 2
   return (
-    <mesh position={[0, y + size[1] / 2, 0]} castShadow>
+    <mesh position={[cx, y, 0]} castShadow>
       <boxGeometry args={size} />
       <meshStandardMaterial color={color} metalness={0.4} roughness={0.5} />
     </mesh>
   )
 }
 
-export default function CabinetModel({
-  spec,
-  open = false,
-}: {
-  spec: CabinetSpec
-  open?: boolean
-}) {
+/** Detailed renderer: vertical sections with dividers, drawers, shelves, doors. */
+function SectionsCabinet({ spec, open }: { spec: CabinetSpec; open: boolean }) {
   const { width: W, height: H, depth: D, panelThickness: t, color } = spec
-  const back = useMemo(() => shade(color, -0.12), [color])
+  const sections = spec.sections!
+  const back = shade(color, -0.12)
+  const toe = spec.toeKick ?? 0
 
-  const shelfYs: number[] = []
-  for (let i = 1; i <= spec.shelves; i++) shelfYs.push((H * i) / (spec.shelves + 1))
+  const interiorLeft = -W / 2 + t
+  const interiorW = W - 2 * t
+  const bottomY = t
+  const interiorH = H - 2 * t
+  const totalWeight = sections.reduce((s, x) => s + Math.max(0.05, x.width), 0) || 1
+  const doorZ = D / 2 + TD / 2
 
-  const gap = 0.003
-  const td = 0.018
-  const doorZ = D / 2 + td / 2
-  const dh = H - 2 * gap
+  // precompute section x-extents
+  let cursor = interiorLeft
+  const laid = sections.map((sec) => {
+    const w = interiorW * (Math.max(0.05, sec.width) / totalWeight)
+    const x0 = cursor
+    const x1 = cursor + w
+    cursor = x1
+    return { sec, x0, x1, w, cx: (x0 + x1) / 2 }
+  })
 
   return (
     <group>
-      {/* carcass */}
+      {toe > 0 && (
+        <Panel size={[W - 0.02, toe, D - 0.06]} position={[0, toe / 2, -0.03]} color={shade(color, -0.2)} />
+      )}
+      <group position={[0, toe, 0]}>
+        {/* carcass */}
+        <Panel size={[t, H, D]} position={[-W / 2 + t / 2, H / 2, 0]} color={color} />
+        <Panel size={[t, H, D]} position={[W / 2 - t / 2, H / 2, 0]} color={color} />
+        <Panel size={[W - 2 * t, t, D]} position={[0, t / 2, 0]} color={color} />
+        <Panel size={[W - 2 * t, t, D]} position={[0, H - t / 2, 0]} color={color} />
+        <Panel size={[W - 2 * t, H - 2 * t, t]} position={[0, H / 2, -D / 2 + t / 2]} color={back} />
+
+        {laid.map(({ sec, x0, x1, w, cx }, i) => (
+          <group key={sec.id}>
+            {/* divider before this section (not the first) */}
+            {i > 0 && <Panel size={[t, interiorH, D - t]} position={[x0, H / 2, t / 2]} color={shade(color, -0.04)} />}
+
+            {sec.front === 'drawers'
+              ? Array.from({ length: Math.max(1, sec.drawers) }).map((_, k) => {
+                  const count = Math.max(1, sec.drawers)
+                  const dh = interiorH / count
+                  const yC = bottomY + (k + 0.5) * dh
+                  return (
+                    <DrawerFront
+                      key={k}
+                      cx={cx}
+                      width={w - 2 * GAP}
+                      height={dh - GAP}
+                      yCenter={yC}
+                      z={doorZ}
+                      color={color}
+                    />
+                  )
+                })
+              : (
+                <>
+                  {/* shelves */}
+                  {Array.from({ length: Math.max(0, sec.shelves) }).map((_, k) => {
+                    const y = bottomY + (interiorH * (k + 1)) / (sec.shelves + 1)
+                    return <Panel key={k} size={[w - 0.004, t, D - t]} position={[cx, y, t / 2]} color={shade(color, -0.04)} />
+                  })}
+                  {/* accessories */}
+                  {sec.accessories.map((a) => (
+                    <Accessory
+                      key={a.id}
+                      typeKey={a.type}
+                      cx={cx}
+                      segW={w}
+                      D={D}
+                      t={t}
+                      yBottom={bottomY}
+                      interiorH={interiorH}
+                      level={a.level}
+                    />
+                  ))}
+                  {/* doors */}
+                  {sec.front === 'door-double' && (
+                    <>
+                      <Door hingeX={x0 + GAP} dirSign={1} width={w / 2 - GAP * 1.5} height={H - 2 * GAP} yCenter={H / 2} z={doorZ} color={color} open={open} />
+                      <Door hingeX={x1 - GAP} dirSign={-1} width={w / 2 - GAP * 1.5} height={H - 2 * GAP} yCenter={H / 2} z={doorZ} color={color} open={open} />
+                    </>
+                  )}
+                  {sec.front === 'door-left' && (
+                    <Door hingeX={x0 + GAP} dirSign={1} width={w - 2 * GAP} height={H - 2 * GAP} yCenter={H / 2} z={doorZ} color={color} open={open} />
+                  )}
+                  {sec.front === 'door-right' && (
+                    <Door hingeX={x1 - GAP} dirSign={-1} width={w - 2 * GAP} height={H - 2 * GAP} yCenter={H / 2} z={doorZ} color={color} open={open} />
+                  )}
+                </>
+              )}
+          </group>
+        ))}
+      </group>
+    </group>
+  )
+}
+
+export default function CabinetModel({ spec, open = false }: { spec: CabinetSpec; open?: boolean }) {
+  if (spec.sections && spec.sections.length > 0) return <SectionsCabinet spec={spec} open={open} />
+
+  // ----- legacy renderer (specs without sections) -----
+  const { width: W, height: H, depth: D, panelThickness: t, color } = spec
+  const back = shade(color, -0.12)
+  const shelfYs: number[] = []
+  for (let i = 1; i <= spec.shelves; i++) shelfYs.push((H * i) / (spec.shelves + 1))
+  const doorZ = D / 2 + TD / 2
+  const dh = H - 2 * GAP
+
+  return (
+    <group>
       <Panel size={[t, H, D]} position={[-W / 2 + t / 2, H / 2, 0]} color={color} />
       <Panel size={[t, H, D]} position={[W / 2 - t / 2, H / 2, 0]} color={color} />
       <Panel size={[W - 2 * t, t, D]} position={[0, t / 2, 0]} color={color} />
       <Panel size={[W - 2 * t, t, D]} position={[0, H - t / 2, 0]} color={color} />
       <Panel size={[W - 2 * t, H - 2 * t, t]} position={[0, H / 2, -D / 2 + t / 2]} color={back} />
-
-      {/* shelves */}
       {shelfYs.map((y, i) => (
         <Panel key={i} size={[W - 2 * t, t, D - t]} position={[0, y, t / 2]} color={shade(color, -0.04)} />
       ))}
-
-      {/* accessories */}
       {spec.accessories.map((a) => (
-        <Accessory key={a.id} typeKey={a.type} W={W} H={H} D={D} t={t} level={a.level} />
+        <Accessory key={a.id} typeKey={a.type} cx={0} segW={W} D={D} t={t} yBottom={t} interiorH={H - 2 * t} level={a.level} />
       ))}
-
-      {/* doors */}
       {spec.doors === 'double' && (
         <>
-          <Door hingeX={-W / 2 + gap} dirSign={1} width={W / 2 - gap * 1.5} height={dh} z={doorZ} thickness={td} color={color} open={open} />
-          <Door hingeX={W / 2 - gap} dirSign={-1} width={W / 2 - gap * 1.5} height={dh} z={doorZ} thickness={td} color={color} open={open} />
+          <Door hingeX={-W / 2 + GAP} dirSign={1} width={W / 2 - GAP * 1.5} height={dh} yCenter={H / 2} z={doorZ} color={color} open={open} />
+          <Door hingeX={W / 2 - GAP} dirSign={-1} width={W / 2 - GAP * 1.5} height={dh} yCenter={H / 2} z={doorZ} color={color} open={open} />
         </>
       )}
       {spec.doors === 'single-left' && (
-        <Door hingeX={-W / 2 + gap} dirSign={1} width={W - 2 * gap} height={dh} z={doorZ} thickness={td} color={color} open={open} />
+        <Door hingeX={-W / 2 + GAP} dirSign={1} width={W - 2 * GAP} height={dh} yCenter={H / 2} z={doorZ} color={color} open={open} />
       )}
       {spec.doors === 'single-right' && (
-        <Door hingeX={W / 2 - gap} dirSign={-1} width={W - 2 * gap} height={dh} z={doorZ} thickness={td} color={color} open={open} />
+        <Door hingeX={W / 2 - GAP} dirSign={-1} width={W - 2 * GAP} height={dh} yCenter={H / 2} z={doorZ} color={color} open={open} />
       )}
     </group>
   )

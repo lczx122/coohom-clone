@@ -69,6 +69,34 @@ export function nearestWall(p: Vec2, walls: Wall[], threshold: number) {
   return best
 }
 
+/**
+ * Snap a cabinet (given its depth) so its back rests against the nearest wall,
+ * returning the new center position and a rotation that faces it into the room.
+ * Works in plan space (Vec2 = {x, y=world-z}). Returns null if no wall is close.
+ */
+export function snapToWall(
+  pos: Vec2,
+  depth: number,
+  walls: Wall[],
+  threshold = 0.7,
+): { position: Vec2; rotation: number } | null {
+  const hit = nearestWall(pos, walls, threshold)
+  if (!hit) return null
+  const w = hit.wall
+  const proj = projectPointToSegment(pos, w.start, w.end).point
+  const dx = w.end.x - w.start.x
+  const dy = w.end.y - w.start.y
+  const len = Math.hypot(dx, dy) || 1
+  let n = { x: -dy / len, y: dx / len }
+  const toItem = { x: pos.x - proj.x, y: pos.y - proj.y }
+  if (toItem.x * n.x + toItem.y * n.y < 0) n = { x: -n.x, y: -n.y }
+  const offset = depth / 2 + (w.thickness ?? 0.1) / 2
+  return {
+    position: { x: proj.x + n.x * offset, y: proj.y + n.y * offset },
+    rotation: Math.atan2(-n.x, n.y),
+  }
+}
+
 /** Polygon area via the shoelace formula (absolute value, in m²). */
 export function polygonArea(points: Vec2[]): number {
   let area = 0

@@ -80,6 +80,22 @@ export interface CabinetAccessory {
   level: number
 }
 
+/** How the front of a section is treated. */
+export type SectionFront = 'none' | 'door-left' | 'door-right' | 'door-double' | 'drawers'
+
+/** A vertical column of the cabinet, separated from neighbours by dividers. */
+export interface CabinetSection {
+  id: string
+  /** relative width weight (sections fill the interior proportionally) */
+  width: number
+  front: SectionFront
+  /** number of drawer fronts when front === 'drawers' */
+  drawers: number
+  /** interior shelves when not a drawer bank */
+  shelves: number
+  accessories: CabinetAccessory[]
+}
+
 export interface CabinetSpec {
   name: string
   /** all dimensions in meters */
@@ -96,6 +112,10 @@ export interface CabinetSpec {
   hingeType: string
   shelves: number
   accessories: CabinetAccessory[]
+  /** recessed plinth height under the carcass (meters) */
+  toeKick?: number
+  /** detailed interior layout; when present it supersedes doors/shelves */
+  sections?: CabinetSection[]
 }
 
 /** A reusable saved cabinet template. */

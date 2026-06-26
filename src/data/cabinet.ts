@@ -1,4 +1,4 @@
-import type { CabinetSpec } from '../types'
+import type { CabinetSection, CabinetSpec, DoorConfig, SectionFront } from '../types'
 import { uid } from '../lib/geometry'
 
 // ---------------------------------------------------------------------------
@@ -58,6 +58,10 @@ export const accessoryTypes: AccessoryType[] = [
 export const accessoryType = (key: string): AccessoryType | undefined =>
   accessoryTypes.find((a) => a.key === key)
 
+export function newSection(width = 1, front: SectionFront = 'door-double'): CabinetSection {
+  return { id: uid('sec'), width, front, drawers: 3, shelves: 1, accessories: [] }
+}
+
 /** A sensible default base cabinet. */
 export function defaultCabinet(name = 'New Cabinet'): CabinetSpec {
   return {
@@ -72,7 +76,31 @@ export function defaultCabinet(name = 'New Cabinet'): CabinetSpec {
     hingeType: 'soft-close',
     shelves: 1,
     accessories: [],
+    toeKick: 0.1,
+    sections: [newSection(1, 'door-double')],
   }
+}
+
+const doorToFront: Record<DoorConfig, SectionFront> = {
+  none: 'none',
+  'single-left': 'door-left',
+  'single-right': 'door-right',
+  double: 'door-double',
+}
+
+/** Ensure a spec has a sections array, synthesising one from legacy fields. */
+export function ensureSections(spec: CabinetSpec): CabinetSection[] {
+  if (spec.sections && spec.sections.length > 0) return spec.sections
+  return [
+    {
+      id: uid('sec'),
+      width: 1,
+      front: doorToFront[spec.doors] ?? 'door-double',
+      drawers: 3,
+      shelves: spec.shelves ?? 1,
+      accessories: spec.accessories ?? [],
+    },
+  ]
 }
 
 export function newAccessory(type: string, level = 0.5) {

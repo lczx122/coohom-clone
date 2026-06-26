@@ -3,17 +3,27 @@ import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Grid } from '@react-three/drei'
 import { useDesignStore } from '../store/useDesignStore'
 import CabinetModel from './CabinetModel'
-import type { CabinetSpec, DoorConfig } from '../types'
+import type { CabinetSection, CabinetSpec, SectionFront } from '../types'
 import {
   accessoryType,
   accessoryTypes,
+  ensureSections,
   hingeTypes,
   materialColor,
   materials,
   newAccessory,
+  newSection,
 } from '../data/cabinet'
 import { lengthValue, toMeters, unitStep } from '../lib/units'
 import { company } from '../config/company'
+
+const FRONTS: { value: SectionFront; label: string }[] = [
+  { value: 'door-double', label: 'Double door' },
+  { value: 'door-left', label: 'Door — left hinge' },
+  { value: 'door-right', label: 'Door — right hinge' },
+  { value: 'drawers', label: 'Drawers' },
+  { value: 'none', label: 'Open' },
+]
 
 export default function CabinetEditor() {
   const editingItemId = useDesignStore((s) => s.editingItemId)
@@ -29,8 +39,11 @@ export default function CabinetEditor() {
   const [savedNote, setSavedNote] = useState('')
 
   useEffect(() => {
-    if (item?.cabinet) setDraft({ ...item.cabinet, accessories: [...item.cabinet.accessories] })
-  }, [item?.id]) // re-init only when switching items
+    if (item?.cabinet) {
+      const sections = ensureSections(item.cabinet).map((s) => ({ ...s, accessories: s.accessories.map((a) => ({ ...a })) }))
+      setDraft({ ...item.cabinet, toeKick: item.cabinet.toeKick ?? 0.1, sections })
+    }
+  }, [item?.id])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -43,17 +56,24 @@ export default function CabinetEditor() {
   if (!editingItemId || !item || !draft) return null
 
   const step = unitStep(unit)
+  const sections = draft.sections ?? []
   const set = (patch: Partial<CabinetSpec>) => setDraft((d) => (d ? { ...d, ...patch } : d))
 
-  const accessoriesPrice = draft.accessories.reduce(
-    (sum, a) => sum + (accessoryType(a.type)?.price ?? 0),
-    0,
-  )
-  // simple carcass price model: proportional to material area
-  const carcassPrice = Math.round((draft.width * draft.height + draft.width * draft.depth) * 220)
-  const total = carcassPrice + accessoriesPrice
+  const updateSection = (id: string, patch: Partial<CabinetSection>) =>
+    set({ sections: sections.map((s) => (s.id === id ? { ...s, ...patch } : s)) })
+  const addSection = () => set({ sections: [...sections, newSection(0.3, 'door-left')] })
+  const removeSection = (id: string) => set({ sections: sections.filter((s) => s.id !== id) })
 
-  const dimField = (label: string, key: 'width' | 'height' | 'depth' | 'panelThickness') => (
+  // price model
+  const sectionsPrice = sections.reduce((sum, s) => {
+    const acc = s.accessories.reduce((a, x) => a + (accessoryType(x.type)?.price ?? 0), 0)
+    const drawers = s.front === 'drawers' ? s.drawers * 45 : 0
+    return sum + acc + drawers
+  }, 0)
+  const carcassPrice = Math.round((draft.width * draft.height + draft.width * draft.depth) * 220)
+  const total = carcassPrice + sectionsPrice
+
+  const dimField = (label: string, key: 'width' | 'height' | 'depth' | 'panelThickness' | 'toeKick') => (
     <div className="field">
       <label>
         {label} ({unit})
@@ -61,16 +81,12 @@ export default function CabinetEditor() {
       <input
         type="number"
         step={step}
-        min={step}
-        value={lengthValue(draft[key], unit)}
-        onChange={(e) => set({ [key]: Math.max(0.003, toMeters(+e.target.value, unit)) } as Partial<CabinetSpec>)}
+        min={key === 'toeKick' ? 0 : step}
+        value={lengthValue(draft[key] ?? 0, unit)}
+        onChange={(e) => set({ [key]: Math.max(0, toMeters(+e.target.value, unit)) } as Partial<CabinetSpec>)}
       />
     </div>
   )
-
-  const apply = () => {
-    updateCabinet(item.id, draft)
-  }
 
   return (
     <div className="modal-overlay" onMouseDown={close}>
@@ -85,15 +101,13 @@ export default function CabinetEditor() {
         <div className="cabinet-body">
           {/* 3D preview */}
           <div className="cabinet-preview">
-            <Canvas shadows camera={{ position: [1.1, 1.0, 1.4], fov: 45 }}>
+            <Canvas shadows camera={{ position: [1.2, 1.1, 1.5], fov: 45 }}>
               <color attach="background" args={['#0c0e12']} />
-              <ambientLight intensity={0.7} />
+              <ambientLight intensity={0.75} />
               <directionalLight position={[2, 3, 2]} intensity={1.2} castShadow />
               <directionalLight position={[-2, 2, -1]} intensity={0.4} />
               <Grid args={[10, 10]} cellSize={0.1} cellColor="#2a313d" sectionSize={0.5} sectionColor="#3a4555" position={[0, 0, 0]} />
-              <group position={[0, 0, 0]}>
-                <CabinetModel spec={draft} open={openDoors} />
-              </group>
+              <CabinetModel spec={draft} open={openDoors} />
               <OrbitControls target={[0, draft.height / 2, 0]} makeDefault />
             </Canvas>
             <label className="preview-toggle">
@@ -109,22 +123,20 @@ export default function CabinetEditor() {
               <input value={draft.name} onChange={(e) => set({ name: e.target.value })} />
             </div>
 
-            <div className="section-title">Dimensions</div>
+            <div className="section-title">Carcass dimensions</div>
             <div className="row2">
               {dimField('Width', 'width')}
               {dimField('Height', 'height')}
             </div>
             <div className="row2">
               {dimField('Depth', 'depth')}
-              {dimField('Panel', 'panelThickness')}
+              {dimField('Board', 'panelThickness')}
             </div>
+            <div className="row2">{dimField('Toe kick', 'toeKick')}<div className="field" /></div>
 
             <div className="section-title">Material</div>
             <div className="field">
-              <select
-                value={draft.material}
-                onChange={(e) => set({ material: e.target.value, color: materialColor(e.target.value) })}
-              >
+              <select value={draft.material} onChange={(e) => set({ material: e.target.value, color: materialColor(e.target.value) })}>
                 {materials.map((m) => (
                   <option key={m.key} value={m.key}>
                     {m.name}
@@ -142,105 +154,128 @@ export default function CabinetEditor() {
                   onClick={() => set({ material: m.key, color: m.color })}
                 />
               ))}
-              <input
-                type="color"
-                value={draft.color}
-                onChange={(e) => set({ color: e.target.value })}
-                title="Custom color"
-                className="color-input"
-              />
+              <input type="color" value={draft.color} onChange={(e) => set({ color: e.target.value })} title="Custom color" className="color-input" />
             </div>
-
-            <div className="section-title">Doors &amp; Hinges</div>
-            <div className="row2">
-              <div className="field">
-                <label>Doors</label>
-                <select value={draft.doors} onChange={(e) => set({ doors: e.target.value as DoorConfig })}>
-                  <option value="none">None (open)</option>
-                  <option value="single-left">Single — left hinge</option>
-                  <option value="single-right">Single — right hinge</option>
-                  <option value="double">Double</option>
-                </select>
-              </div>
-              <div className="field">
-                <label>Hinge type</label>
-                <select
-                  value={draft.hingeType}
-                  disabled={draft.doors === 'none'}
-                  onChange={(e) => set({ hingeType: e.target.value })}
-                >
-                  {hingeTypes.map((h) => (
-                    <option key={h.key} value={h.key}>
-                      {h.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="section-title">Shelves</div>
             <div className="field">
-              <input
-                type="number"
-                min={0}
-                max={10}
-                value={draft.shelves}
-                onChange={(e) => set({ shelves: Math.max(0, Math.min(10, Math.round(+e.target.value))) })}
-              />
+              <label>Hinge type</label>
+              <select value={draft.hingeType} onChange={(e) => set({ hingeType: e.target.value })}>
+                {hingeTypes.map((h) => (
+                  <option key={h.key} value={h.key}>
+                    {h.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            <div className="section-title">Accessories</div>
-            <div className="acc-palette">
-              {accessoryTypes.map((a) => (
-                <button
-                  key={a.key}
-                  className="acc-add"
-                  title={`Add ${a.name}${a.price ? ` (${company.currency}${a.price})` : ''}`}
-                  onClick={() => set({ accessories: [...draft.accessories, newAccessory(a.key)] })}
-                >
-                  + {a.name}
-                </button>
-              ))}
+            <div className="section-title">
+              Sections / dividers
+              <button className="acc-add" style={{ float: 'right' }} onClick={addSection}>
+                + Add section
+              </button>
             </div>
-            {draft.accessories.length === 0 && (
-              <p className="empty-note">No accessories added yet.</p>
-            )}
-            {draft.accessories.map((a) => {
-              const at = accessoryType(a.type)
-              return (
-                <div className="acc-row" key={a.id}>
-                  <span className="acc-name">{at?.name ?? a.type}</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={a.level}
-                    title="Height position"
-                    onChange={(e) =>
-                      set({
-                        accessories: draft.accessories.map((x) =>
-                          x.id === a.id ? { ...x, level: +e.target.value } : x,
-                        ),
-                      })
-                    }
-                  />
-                  <button
-                    className="acc-del"
-                    onClick={() => set({ accessories: draft.accessories.filter((x) => x.id !== a.id) })}
-                  >
-                    ✕
-                  </button>
+            <p className="empty-note" style={{ marginTop: 0 }}>
+              Each section is a column split by a divider. Widths are relative and scale to fill the cabinet.
+            </p>
+
+            {sections.map((s, idx) => (
+              <div className="cab-section" key={s.id}>
+                <div className="cab-section-head">
+                  <b>Section {idx + 1}</b>
+                  {sections.length > 1 && (
+                    <button className="acc-del" onClick={() => removeSection(s.id)} title="Remove section">
+                      ✕
+                    </button>
+                  )}
                 </div>
-              )
-            })}
+                <div className="row2">
+                  <div className="field">
+                    <label>Width ({unit})</label>
+                    <input
+                      type="number"
+                      step={step}
+                      min={step}
+                      value={lengthValue(s.width, unit)}
+                      onChange={(e) => updateSection(s.id, { width: Math.max(0.05, toMeters(+e.target.value, unit)) })}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Front</label>
+                    <select value={s.front} onChange={(e) => updateSection(s.id, { front: e.target.value as SectionFront })}>
+                      {FRONTS.map((f) => (
+                        <option key={f.value} value={f.value}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {s.front === 'drawers' ? (
+                  <div className="field">
+                    <label>Drawers</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={8}
+                      value={s.drawers}
+                      onChange={(e) => updateSection(s.id, { drawers: Math.max(1, Math.min(8, Math.round(+e.target.value))) })}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <div className="field">
+                      <label>Shelves</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={10}
+                        value={s.shelves}
+                        onChange={(e) => updateSection(s.id, { shelves: Math.max(0, Math.min(10, Math.round(+e.target.value))) })}
+                      />
+                    </div>
+                    <div className="acc-palette">
+                      {accessoryTypes.map((a) => (
+                        <button
+                          key={a.key}
+                          className="acc-add"
+                          title={`Add ${a.name}`}
+                          onClick={() => updateSection(s.id, { accessories: [...s.accessories, newAccessory(a.key)] })}
+                        >
+                          + {a.name}
+                        </button>
+                      ))}
+                    </div>
+                    {s.accessories.map((a) => (
+                      <div className="acc-row" key={a.id}>
+                        <span className="acc-name">{accessoryType(a.type)?.name ?? a.type}</span>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={a.level}
+                          onChange={(e) =>
+                            updateSection(s.id, {
+                              accessories: s.accessories.map((x) => (x.id === a.id ? { ...x, level: +e.target.value } : x)),
+                            })
+                          }
+                        />
+                        <button
+                          className="acc-del"
+                          onClick={() => updateSection(s.id, { accessories: s.accessories.filter((x) => x.id !== a.id) })}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            ))}
 
             <div className="price-line">
               Est. price: <b>{company.currency}{total.toLocaleString()}</b>
-              <span className="price-detail">
-                {' '}
-                (carcass {company.currency}{carcassPrice} + accessories {company.currency}{accessoriesPrice})
-              </span>
+              <span className="price-detail"> (carcass {company.currency}{carcassPrice} + fit-out {company.currency}{sectionsPrice})</span>
             </div>
           </div>
         </div>
@@ -254,7 +289,7 @@ export default function CabinetEditor() {
           <button
             className="icon-btn"
             onClick={() => {
-              apply()
+              updateCabinet(item.id, draft)
               saveModel(draft)
               setSavedNote(`Saved "${draft.name}" to My Cabinets`)
               setTimeout(() => setSavedNote(''), 2500)
@@ -265,7 +300,7 @@ export default function CabinetEditor() {
           <button
             className="icon-btn primary"
             onClick={() => {
-              apply()
+              updateCabinet(item.id, draft)
               close()
             }}
           >

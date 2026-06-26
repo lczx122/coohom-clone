@@ -512,6 +512,20 @@ button {
   touch-action: none;
   background: rgba(47, 109, 246, 0.04);
 }
+.sketch3d-controls {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  gap: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
 
 /* ---------- 3D environment toggle ---------- */
 .view-env {
@@ -753,6 +767,20 @@ button {
 }
 .acc-del:hover {
   color: #ff9aa2;
+}
+.cab-section {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: var(--panel-2);
+}
+.cab-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
 }
 .price-line {
   margin-top: 14px;

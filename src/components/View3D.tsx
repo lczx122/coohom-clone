@@ -8,6 +8,7 @@ import { detectRooms } from '../lib/rooms'
 import { DEFAULT_FLOORING, flooringByKey, floorings } from '../data/flooring'
 import type { FloorKind } from '../data/flooring'
 import { defaultCabinet } from '../data/cabinet'
+import { snapToWall } from '../lib/geometry'
 import CabinetModel from './CabinetModel'
 import type { CabinetSpec, PlacedItem, Vec2, Wall } from '../types'
 
@@ -37,15 +38,31 @@ function screenToFloor(px: number, py: number, rect: { width: number; height: nu
   return RAY.ray.intersectPlane(FLOOR_PLANE, out) ? out : null
 }
 
+function screenToPlane(px: number, py: number, rect: { width: number; height: number }, camera: THREE.Camera, plane: THREE.Plane) {
+  const ndc = new THREE.Vector2((px / rect.width) * 2 - 1, -(py / rect.height) * 2 + 1)
+  RAY.setFromCamera(ndc, camera)
+  const out = new THREE.Vector3()
+  return RAY.ray.intersectPlane(plane, out) ? out : null
+}
+
 function worldToScreenPt(v: THREE.Vector3, rect: { width: number; height: number }, camera: THREE.Camera) {
   const p = v.clone().project(camera)
   return { x: (p.x * 0.5 + 0.5) * rect.width, y: (-p.y * 0.5 + 0.5) * rect.height }
+}
+
+function pxPerMeterAt(p: THREE.Vector3, rect: { width: number; height: number }, camera: THREE.Camera) {
+  const sB = worldToScreenPt(p, rect, camera)
+  const sUp = worldToScreenPt(p.clone().add(new THREE.Vector3(0, 1, 0)), rect, camera)
+  const v = Math.abs(sB.y - sUp.y)
+  return v < 2 ? 120 : v
 }
 
 function transcribeStroke(
   stroke: { x: number; y: number }[],
   rect: { width: number; height: number },
   camera: THREE.Camera,
+  scene: THREE.Scene,
+  walls: Wall[],
 ): SketchPreview | null {
   if (stroke.length < 2) return null
   const xs = stroke.map((p) => p.x)
@@ -56,40 +73,64 @@ function transcribeStroke(
   const maxY = Math.max(...ys)
   if (maxX - minX < 8 || maxY - minY < 8) return null
 
-  const base = screenToFloor((minX + maxX) / 2, maxY, rect, camera)
-  const left = screenToFloor(minX, maxY, rect, camera)
-  const right = screenToFloor(maxX, maxY, rect, camera)
-  if (!base || !left || !right) return null
-
-  const width = clamp(Math.hypot(left.x - right.x, left.z - right.z), 0.2, 4)
-
-  const sBase = worldToScreenPt(base, rect, camera)
-  const sUp = worldToScreenPt(base.clone().add(new THREE.Vector3(0, 1, 0)), rect, camera)
-  let pxPerMeter = Math.abs(sBase.y - sUp.y)
-  if (pxPerMeter < 2) pxPerMeter = 120
-  const height = clamp((maxY - minY) / pxPerMeter, 0.2, 3)
-
-  const fwd = new THREE.Vector3()
-  camera.getWorldDirection(fwd)
-  fwd.y = 0
-  if (fwd.lengthSq() < 1e-6) return null
-  fwd.normalize()
-
   const depth = 0.6
-  const center = { x: base.x + (fwd.x * depth) / 2, z: base.z + (fwd.z * depth) / 2 }
-  const rotation = Math.atan2(fwd.x, -fwd.z) // cabinet front faces the camera
+  let candidate: Vec2
+  let width: number
+  let height: number
+  let onWall = false
 
-  return {
-    spec: { ...defaultCabinet('Cabinet'), width, height, depth },
-    position: { x: center.x, y: center.z },
-    rotation,
+  // 1) does the stroke land on a wall? -> place flush against it (depth inferred)
+  const cndc = new THREE.Vector2(((minX + maxX) / 2 / rect.width) * 2 - 1, -((minY + maxY) / 2 / rect.height) * 2 + 1)
+  RAY.setFromCamera(cndc, camera)
+  const hits = RAY.intersectObjects(scene.children, true)
+  const wallHit = hits.find((h) => h.object.userData && h.object.userData.isWall)
+
+  if (wallHit) {
+    onWall = true
+    const p = wallHit.point
+    candidate = { x: p.x, y: p.z }
+    const normal = wallHit.face
+      ? wallHit.face.normal.clone().transformDirection(wallHit.object.matrixWorld)
+      : new THREE.Vector3(0, 0, 1)
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, p)
+    const pL = screenToPlane(minX, (minY + maxY) / 2, rect, camera, plane)
+    const pR = screenToPlane(maxX, (minY + maxY) / 2, rect, camera, plane)
+    width = pL && pR ? clamp(Math.hypot(pL.x - pR.x, pL.z - pR.z), 0.2, 4) : 0.6
+    height = clamp((maxY - minY) / pxPerMeterAt(p, rect, camera), 0.2, 3)
+  } else {
+    const base = screenToFloor((minX + maxX) / 2, maxY, rect, camera)
+    const left = screenToFloor(minX, maxY, rect, camera)
+    const right = screenToFloor(maxX, maxY, rect, camera)
+    if (!base || !left || !right) return null
+    candidate = { x: base.x, y: base.z }
+    width = clamp(Math.hypot(left.x - right.x, left.z - right.z), 0.2, 4)
+    height = clamp((maxY - minY) / pxPerMeterAt(base, rect, camera), 0.2, 3)
   }
+
+  // 2) snap to the nearest wall (definitely when drawn on a wall)
+  const snap = snapToWall(candidate, depth, walls, onWall ? 3 : 0.7)
+  let position: Vec2
+  let rotation: number
+  if (snap) {
+    position = snap.position
+    rotation = snap.rotation
+  } else {
+    const fwd = new THREE.Vector3()
+    camera.getWorldDirection(fwd)
+    fwd.y = 0
+    if (fwd.lengthSq() < 1e-6) return null
+    fwd.normalize()
+    position = { x: candidate.x + (fwd.x * depth) / 2, y: candidate.y + (fwd.z * depth) / 2 }
+    rotation = Math.atan2(fwd.x, -fwd.z)
+  }
+
+  return { spec: { ...defaultCabinet('Cabinet'), width, height, depth }, position, rotation }
 }
 
-/** Keeps a live reference to the R3F camera for the screen-space overlay. */
-function CameraTap({ camRef }: { camRef: React.MutableRefObject<THREE.Camera | null> }) {
-  useFrame(({ camera }) => {
-    camRef.current = camera
+/** Keeps a live reference to the R3F camera + scene for the screen-space overlay. */
+function CameraTap({ tapRef }: { tapRef: React.MutableRefObject<{ camera: THREE.Camera; scene: THREE.Scene } | null> }) {
+  useFrame(({ camera, scene }) => {
+    tapRef.current = { camera, scene }
   })
   return null
 }
@@ -102,7 +143,13 @@ function WallMesh({ wall }: { wall: Wall }) {
   const cx = (wall.start.x + wall.end.x) / 2
   const cz = (wall.start.y + wall.end.y) / 2
   return (
-    <mesh position={[cx, wall.height / 2, cz]} rotation={[0, -angle, 0]} castShadow receiveShadow>
+    <mesh
+      position={[cx, wall.height / 2, cz]}
+      rotation={[0, -angle, 0]}
+      castShadow
+      receiveShadow
+      userData={{ isWall: true, wallId: wall.id }}
+    >
       <boxGeometry args={[length, wall.height, wall.thickness]} />
       <meshStandardMaterial color={wall.color ?? DEFAULT_WALL_COLOR} />
     </mesh>
@@ -303,7 +350,7 @@ export default function View3D() {
   // 3D sketch-to-cabinet
   const [sketch3d, setSketch3d] = useState(false)
   const [preview, setPreview] = useState<SketchPreview | null>(null)
-  const camRef = useRef<THREE.Camera | null>(null)
+  const tapRef = useRef<{ camera: THREE.Camera; scene: THREE.Scene } | null>(null)
   const overlayRef = useRef<HTMLCanvasElement | null>(null)
   const strokeRef = useRef<{ x: number; y: number }[]>([])
   const drawingRef = useRef(false)
@@ -363,9 +410,12 @@ export default function View3D() {
     if (last && Math.hypot(x - last.x, y - last.y) < 2) return
     strokeRef.current.push({ x, y })
     redrawOverlay()
-    if (camRef.current) setPreview(transcribeStroke(strokeRef.current, rect, camRef.current))
+    const tap = tapRef.current
+    if (tap) setPreview(transcribeStroke(strokeRef.current, rect, tap.camera, tap.scene, walls))
   }
 
+  // a finished stroke just updates the (editable) preview — it is not committed
+  // until the user clicks Done.
   const onSketchUp = (e: React.PointerEvent) => {
     if (!drawingRef.current) return
     drawingRef.current = false
@@ -375,11 +425,20 @@ export default function View3D() {
       /* pointer already released */
     }
     const rect = overlayRef.current!.getBoundingClientRect()
-    const result = camRef.current ? transcribeStroke(strokeRef.current, rect, camRef.current) : null
-    if (result) {
-      const id = addCabinetItem(result.spec, result.position)
-      updateItem(id, { rotation: result.rotation })
-    }
+    const tap = tapRef.current
+    if (tap) setPreview(transcribeStroke(strokeRef.current, rect, tap.camera, tap.scene, walls))
+  }
+
+  const commitSketch = () => {
+    if (!preview) return
+    const id = addCabinetItem(preview.spec, preview.position)
+    updateItem(id, { rotation: preview.rotation })
+    strokeRef.current = []
+    setPreview(null)
+    redrawOverlay()
+  }
+
+  const clearSketch = () => {
     strokeRef.current = []
     setPreview(null)
     redrawOverlay()
@@ -492,7 +551,7 @@ export default function View3D() {
           </group>
         )}
 
-        <CameraTap camRef={camRef} />
+        <CameraTap tapRef={tapRef} />
         <OrbitControls enabled={!sketch3d} target={[center.x, 1, center.z]} makeDefault />
         {!sketch3d && <WasdControls />}
       </Canvas>
@@ -505,6 +564,17 @@ export default function View3D() {
           onPointerMove={onSketchMove}
           onPointerUp={onSketchUp}
         />
+      )}
+
+      {sketch3d && (
+        <div className="sketch3d-controls">
+          <button className="icon-btn primary" onClick={commitSketch} disabled={!preview}>
+            Done — place cabinet
+          </button>
+          <button className="icon-btn" onClick={clearSketch} disabled={!preview}>
+            Clear
+          </button>
+        </div>
       )}
 
       <div className="view-env">
@@ -527,8 +597,9 @@ export default function View3D() {
       <div className="canvas-hint">
         {sketch3d ? (
           <>
-            <b>Sketch a cabinet:</b> the view is frozen — draw a box where you want it and
-            a cabinet is generated in 3D. Toggle <b>✎ Sketch</b> off to move the camera again.
+            <b>Sketch a cabinet:</b> the view is frozen — draw a box on a wall or the floor
+            (redraw to adjust), then click <b>Done</b> to place it. It snaps to the nearest
+            wall. Toggle <b>✎ Sketch</b> off to move the camera again.
           </>
         ) : (
           <>

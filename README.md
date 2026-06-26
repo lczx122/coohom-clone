@@ -53,11 +53,14 @@ npm run typecheck  # types only
 **Cabinet maker**
 - Place a **custom cabinet** (sidebar → *Custom Cabinets → + New cabinet*) and
   double-click it (or *Edit cabinet…*) to open the **Cabinet Editor**.
-- Live 3D preview while you configure: width / height / depth, panel thickness,
-  **material & color**, **doors** (none / single-left / single-right / double)
-  and **hinge type**, shelves, and **accessories** (drawer, pull-out trash bin,
-  dish basket, cutlery tray, wine rack, baskets, spice pull-out) with a height
-  slider each. A running price estimate updates as you build.
+- Live 3D preview while you configure: carcass width / height / depth, board
+  (panel) thickness, toe-kick, **material & color**, and **hinge type**.
+- **Sections & dividers**: split the cabinet into vertical columns, each with an
+  editable width and its own front — **double / left / right door**, a
+  **drawer bank** (1–8 drawers with fronts & handles), or **open** — plus
+  per-section shelves and **accessories** (pull-out trash, dish basket, cutlery
+  tray, wine rack, baskets, spice pull-out). A running price estimate updates as
+  you build.
 - **Save as Model** stores the cabinet under *My Cabinets* so you can drop more
   copies onto any plan. Models persist across projects.
 - Configuration lives in `src/data/cabinet.ts` (materials, hinges, accessories);
@@ -74,9 +77,10 @@ npm run typecheck  # types only
 - **Move the camera freely**: **WASD** to move, **Q/E** for up/down, **Shift**
   to move faster, mouse-drag to look, scroll to zoom.
 - **Sketch a cabinet in 3D**: toggle **✎ Sketch** to freeze the camera, then
-  draw a box on the frozen view (mouse or stylus). The stroke is ray-cast into
-  the scene and a cabinet is generated live where you drew it — sized from the
-  box and standing on the floor, facing the camera. Toggle off to move again.
+  draw a box on the frozen view (mouse or stylus). Drawing on a **wall** places
+  the cabinet flush against it (depth inferred); otherwise it snaps to the
+  nearest wall. Redraw to adjust; the cabinet is only placed when you click
+  **Done**. Toggle off to move the camera again.
 - Enclosed rooms get flooring (per-room choice), point-lights illuminate the
   scene, and you can switch between a **Studio** backdrop and an **Outdoor**
   environment with a procedural sky.
