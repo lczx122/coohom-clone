@@ -278,6 +278,39 @@ button {
   padding: 4px;
 }
 
+/* ---------- 3D environment toggle ---------- */
+.view-env {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  display: flex;
+  gap: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+/* ---------- Color field ---------- */
+.color-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.color-field input[type='color'] {
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  cursor: pointer;
+}
+.color-field span {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 /* ---------- Properties panel ---------- */
 .props {
   grid-area: props;

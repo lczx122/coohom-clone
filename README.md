@@ -32,7 +32,13 @@ npm run typecheck  # types only
 - **Editable measurements**: select a wall and type its exact length right on the
   plan (or in Properties). Resizing moves the shared corner so rooms stay closed.
 - **Rooms**: enclose an area with walls and it's detected automatically — the
-  floor area is shown and you can click the room to rename it.
+  floor area is shown and you can click the room to **rename** it and pick its
+  **flooring** (wood / tile / carpet / stone / concrete).
+- **Per-wall color**: select a wall and set its color (reflected in 2D and 3D).
+- **Cabinets snap to walls**: placing or moving a cabinet near a wall clings its
+  back to the wall and orients it to face into the room.
+- **Lighting**: place ceiling point-lights (sidebar → *Lighting*) and tune their
+  color, brightness, and height; they illuminate the 3D view.
 - Units default to **millimeters** (switch to meters in the top bar).
 - Add **doors** and **windows** by clicking on a wall (with swing/symbol drawn).
 - Drag walls, drag wall corners, and reposition openings along a wall.
@@ -63,7 +69,13 @@ npm run typecheck  # types only
   placed products and cabinets as solids.
 - **Move the camera freely**: **WASD** to move, **Q/E** for up/down, **Shift**
   to move faster, mouse-drag to look, scroll to zoom.
-- Enclosed rooms get **standard wood flooring** automatically.
+- Enclosed rooms get flooring (per-room choice), point-lights illuminate the
+  scene, and you can switch between a **Studio** backdrop and an **Outdoor**
+  environment with a procedural sky.
+
+**Sample scenes**
+- The **Samples…** menu in the top bar loads ready-made demos — a Studio
+  Kitchen, a Living Room, and an Outdoor Patio — each as a new project.
 
 **Keyboard shortcuts**
 - `V` select · `W` wall · `D` door · `N` window · `H` pan

@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { useDesignStore } from '../store/useDesignStore'
 import { company } from '../config/company'
+import { sampleList } from '../data/samples'
 import type { Tool } from '../types'
 import type { Unit } from '../lib/units'
 
@@ -37,6 +38,7 @@ export default function Toolbar({
   const switchProject = useDesignStore((s) => s.switchProject)
   const renameProject = useDesignStore((s) => s.renameProject)
   const deleteProject = useDesignStore((s) => s.deleteProject)
+  const loadSample = useDesignStore((s) => s.loadSample)
 
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -120,6 +122,22 @@ export default function Toolbar({
         >
           🗑
         </button>
+        <select
+          className="proj-select"
+          value=""
+          title="Load a sample scene"
+          onChange={(e) => {
+            if (e.target.value) loadSample(e.target.value)
+            e.target.value = ''
+          }}
+        >
+          <option value="">Samples…</option>
+          {sampleList.map((s) => (
+            <option key={s.key} value={s.key}>
+              {s.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="tool-group">

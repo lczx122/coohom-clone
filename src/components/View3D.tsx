@@ -1,12 +1,16 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { OrbitControls, Grid } from '@react-three/drei'
+import { OrbitControls, Grid, Sky } from '@react-three/drei'
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useDesignStore } from '../store/useDesignStore'
 import { productById } from '../data/catalog'
 import { detectRooms } from '../lib/rooms'
+import { DEFAULT_FLOORING, flooringByKey, floorings } from '../data/flooring'
+import type { FloorKind } from '../data/flooring'
 import CabinetModel from './CabinetModel'
-import type { Wall } from '../types'
+import type { PlacedItem, Wall } from '../types'
+
+const DEFAULT_WALL_COLOR = '#d6dae0'
 
 // Plan coordinates map to 3D as: world.x -> x, world.y -> z (depth), height -> y.
 
@@ -20,7 +24,7 @@ function WallMesh({ wall }: { wall: Wall }) {
   return (
     <mesh position={[cx, wall.height / 2, cz]} rotation={[0, -angle, 0]} castShadow receiveShadow>
       <boxGeometry args={[length, wall.height, wall.thickness]} />
-      <meshStandardMaterial color="#d6dae0" />
+      <meshStandardMaterial color={wall.color ?? DEFAULT_WALL_COLOR} />
     </mesh>
   )
 }
@@ -43,58 +47,107 @@ function ItemMesh({
   )
 }
 
-/** Procedural light-wood plank texture for "standard" flooring. */
-function makeWoodTexture(): THREE.Texture {
+/** Procedural floor texture per flooring kind. */
+function makeFloorTexture(kind: FloorKind, color: string): THREE.Texture {
   const c = document.createElement('canvas')
   c.width = 256
   c.height = 256
   const ctx = c.getContext('2d')!
-  ctx.fillStyle = '#c19a6b'
+  ctx.fillStyle = color
   ctx.fillRect(0, 0, 256, 256)
-  // plank seams + subtle grain
-  for (let y = 0; y <= 256; y += 64) {
-    ctx.strokeStyle = 'rgba(90,60,30,0.45)'
-    ctx.lineWidth = 2
-    ctx.beginPath()
-    ctx.moveTo(0, y)
-    ctx.lineTo(256, y)
-    ctx.stroke()
+
+  if (kind === 'wood') {
+    for (let y = 0; y <= 256; y += 64) {
+      ctx.strokeStyle = 'rgba(60,40,20,0.45)'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(0, y)
+      ctx.lineTo(256, y)
+      ctx.stroke()
+    }
+    for (let i = 0; i < 60; i++) {
+      ctx.strokeStyle = `rgba(80,55,30,${0.04 + Math.random() * 0.06})`
+      const y = Math.random() * 256
+      ctx.beginPath()
+      ctx.moveTo(0, y)
+      ctx.lineTo(256, y + (Math.random() * 8 - 4))
+      ctx.stroke()
+    }
+  } else if (kind === 'tile') {
+    ctx.strokeStyle = 'rgba(0,0,0,0.18)'
+    ctx.lineWidth = 3
+    for (let p = 0; p <= 256; p += 128) {
+      ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, 256); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(256, p); ctx.stroke()
+    }
+  } else if (kind === 'stone') {
+    for (let i = 0; i < 120; i++) {
+      ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.08})`
+      const r = 6 + Math.random() * 22
+      ctx.beginPath()
+      ctx.arc(Math.random() * 256, Math.random() * 256, r, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  } else if (kind === 'carpet') {
+    for (let i = 0; i < 2200; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.05})`
+      ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2)
+    }
+  } else {
+    // concrete
+    for (let i = 0; i < 400; i++) {
+      ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.04})`
+      ctx.fillRect(Math.random() * 256, Math.random() * 256, 3, 3)
+    }
   }
-  for (let i = 0; i < 60; i++) {
-    ctx.strokeStyle = `rgba(140,100,60,${0.04 + Math.random() * 0.06})`
-    ctx.lineWidth = 1
-    const y = Math.random() * 256
-    ctx.beginPath()
-    ctx.moveTo(0, y)
-    ctx.lineTo(256, y + (Math.random() * 8 - 4))
-    ctx.stroke()
-  }
+
   const tex = new THREE.CanvasTexture(c)
   tex.colorSpace = THREE.SRGBColorSpace
   tex.wrapS = THREE.RepeatWrapping
   tex.wrapT = THREE.RepeatWrapping
-  tex.repeat.set(0.8, 0.8) // ~1.25 m per plank-block
+  tex.repeat.set(kind === 'tile' ? 1.5 : 0.8, kind === 'tile' ? 1.5 : 0.8)
   return tex
 }
 
 function RoomFloors() {
   const walls = useDesignStore((s) => s.walls)
+  const roomFloors = useDesignStore((s) => s.roomFloors)
   const rooms = useMemo(() => detectRooms(walls), [walls])
-  const tex = useMemo(() => makeWoodTexture(), [])
+  // one texture per flooring preset, reused across rooms
+  const textures = useMemo(() => {
+    const map = new Map<string, THREE.Texture>()
+    for (const f of floorings) map.set(f.key, makeFloorTexture(f.kind, f.color))
+    return map
+  }, [])
   return (
     <>
       {rooms.map((r) => {
         const shape = new THREE.Shape()
         r.polygon.forEach((p, i) => (i === 0 ? shape.moveTo(p.x, p.y) : shape.lineTo(p.x, p.y)))
         shape.closePath()
+        const fl = flooringByKey(roomFloors[r.key] ?? DEFAULT_FLOORING)
         return (
           <mesh key={r.key} rotation={[Math.PI / 2, 0, 0]} position={[0, 0.006, 0]} receiveShadow>
             <shapeGeometry args={[shape]} />
-            <meshStandardMaterial map={tex} side={THREE.DoubleSide} roughness={0.85} metalness={0} />
+            <meshStandardMaterial map={textures.get(fl.key)} side={THREE.DoubleSide} roughness={0.85} metalness={0} />
           </mesh>
         )
       })}
     </>
+  )
+}
+
+/** A placeable light: a point light plus a glowing bulb mesh. */
+function LightFixture({ item }: { item: PlacedItem }) {
+  const l = item.light!
+  return (
+    <group position={[item.position.x, l.height, item.position.y]}>
+      <pointLight color={l.color} intensity={l.intensity * 6} distance={9} decay={2} />
+      <mesh>
+        <sphereGeometry args={[0.07, 16, 16]} />
+        <meshStandardMaterial color={l.color} emissive={l.color} emissiveIntensity={2.5} />
+      </mesh>
+    </group>
   )
 }
 
@@ -162,6 +215,8 @@ function WasdControls({ speed = 4 }: { speed?: number }) {
 export default function View3D() {
   const walls = useDesignStore((s) => s.walls)
   const items = useDesignStore((s) => s.items)
+  const environment = useDesignStore((s) => s.environment)
+  const setEnvironment = useDesignStore((s) => s.setEnvironment)
 
   const center = useMemo(() => {
     let sx = 0
@@ -181,34 +236,57 @@ export default function View3D() {
     return { x: sx / n, z: sz / n }
   }, [walls, items])
 
+  const outdoor = environment === 'outdoor'
+
   return (
     <div className="canvas-wrap">
-      <Canvas shadows camera={{ position: [center.x + 6, 6, center.z + 6], fov: 50 }}>
-        <color attach="background" args={['#0c0e12']} />
-        <ambientLight intensity={0.85} />
-        <hemisphereLight args={['#ffffff', '#444a55', 0.6]} />
-        <directionalLight
-          position={[10, 15, 8]}
-          intensity={0.9}
-          castShadow
-          shadow-mapSize-width={1024}
-          shadow-mapSize-height={1024}
-        />
-        <Grid
-          args={[40, 40]}
-          cellSize={1}
-          cellColor="#2a313d"
-          sectionSize={5}
-          sectionColor="#3a4555"
-          infiniteGrid
-          fadeDistance={50}
-          position={[0, 0, 0]}
-        />
-        {/* base ground */}
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center.x, -0.01, center.z]} receiveShadow>
-          <planeGeometry args={[80, 80]} />
-          <meshStandardMaterial color="#11151c" />
-        </mesh>
+      <Canvas shadows camera={{ position: [center.x + 6, 6, center.z + 6], fov: 50, near: 0.05, far: 600000 }}>
+        {outdoor ? (
+          <>
+            <Sky distance={450000} sunPosition={[8, 6, 5]} turbidity={6} rayleigh={1.5} />
+            <hemisphereLight args={['#bcd7ff', '#6b7a55', 0.8]} />
+            <ambientLight intensity={0.35} />
+            <directionalLight
+              position={[8, 12, 5]}
+              intensity={2.0}
+              castShadow
+              shadow-mapSize-width={2048}
+              shadow-mapSize-height={2048}
+            />
+            {/* grass ground */}
+            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center.x, -0.01, center.z]} receiveShadow>
+              <planeGeometry args={[200, 200]} />
+              <meshStandardMaterial color="#5f7a43" roughness={1} />
+            </mesh>
+          </>
+        ) : (
+          <>
+            <color attach="background" args={['#0c0e12']} />
+            <ambientLight intensity={0.8} />
+            <hemisphereLight args={['#ffffff', '#444a55', 0.6]} />
+            <directionalLight
+              position={[10, 15, 8]}
+              intensity={0.9}
+              castShadow
+              shadow-mapSize-width={2048}
+              shadow-mapSize-height={2048}
+            />
+            <Grid
+              args={[40, 40]}
+              cellSize={1}
+              cellColor="#2a313d"
+              sectionSize={5}
+              sectionColor="#3a4555"
+              infiniteGrid
+              fadeDistance={50}
+              position={[0, 0, 0]}
+            />
+            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[center.x, -0.01, center.z]} receiveShadow>
+              <planeGeometry args={[80, 80]} />
+              <meshStandardMaterial color="#11151c" />
+            </mesh>
+          </>
+        )}
 
         <RoomFloors />
 
@@ -217,6 +295,7 @@ export default function View3D() {
         ))}
 
         {items.map((it) => {
+          if (it.light) return <LightFixture key={it.id} item={it} />
           if (it.cabinet) {
             return (
               <group key={it.id} position={[it.position.x, 0, it.position.y]} rotation={[0, -it.rotation, 0]}>
@@ -242,6 +321,16 @@ export default function View3D() {
         <OrbitControls target={[center.x, 1, center.z]} makeDefault />
         <WasdControls />
       </Canvas>
+
+      <div className="view-env">
+        <button className={`tool-btn ${!outdoor ? 'active' : ''}`} onClick={() => setEnvironment('studio')} style={{ minWidth: 56 }}>
+          Studio
+        </button>
+        <button className={`tool-btn ${outdoor ? 'active' : ''}`} onClick={() => setEnvironment('outdoor')} style={{ minWidth: 56 }}>
+          Outdoor
+        </button>
+      </div>
+
       <div className="canvas-hint">
         <b>3D view</b> · <b>WASD</b> to move · <b>Q/E</b> up/down · Shift to go faster ·
         drag to look · scroll to zoom

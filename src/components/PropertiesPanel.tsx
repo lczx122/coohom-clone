@@ -5,6 +5,9 @@ import { company } from '../config/company'
 import { dist } from '../lib/geometry'
 import { detectRooms } from '../lib/rooms'
 import { formatArea, lengthValue, toMeters, unitStep } from '../lib/units'
+import { floorings, DEFAULT_FLOORING } from '../data/flooring'
+
+const DEFAULT_WALL_COLOR = '#cbd3e1'
 
 export default function PropertiesPanel() {
   const { selection, walls, openings, items, unit, roomNames } = useDesignStore()
@@ -80,6 +83,22 @@ export default function PropertiesPanel() {
             />
           </div>
         </div>
+        <div className="field">
+          <label>Color</label>
+          <div className="color-field">
+            <input
+              type="color"
+              value={w.color ?? DEFAULT_WALL_COLOR}
+              onChange={(e) => updateWall(w.id, { color: e.target.value })}
+            />
+            <span>{(w.color ?? DEFAULT_WALL_COLOR).toUpperCase()}</span>
+            {w.color && (
+              <button className="icon-btn" onClick={() => updateWall(w.id, { color: undefined })}>
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
         <button className="danger" onClick={deleteSelection}>
           Delete wall
         </button>
@@ -151,6 +170,66 @@ export default function PropertiesPanel() {
   const it = items.find((x) => x.id === selection.id)
   if (!it) return null
   const deg = Math.round((it.rotation * 180) / Math.PI)
+
+  // light fixture
+  if (it.light) {
+    const l = it.light
+    return (
+      <div className="props">
+        <div className="section-title">Light</div>
+        <div className="field">
+          <label>Color</label>
+          <div className="color-field">
+            <input type="color" value={l.color} onChange={(e) => updateItem(it.id, { light: { ...l, color: e.target.value } })} />
+            <span>{l.color.toUpperCase()}</span>
+          </div>
+        </div>
+        <div className="field">
+          <label>Brightness: {l.intensity.toFixed(1)}</label>
+          <input
+            type="range"
+            min="0.2"
+            max="4"
+            step="0.1"
+            value={l.intensity}
+            onChange={(e) => updateItem(it.id, { light: { ...l, intensity: +e.target.value } })}
+          />
+        </div>
+        <div className="field">
+          <label>Height ({unit})</label>
+          <input
+            type="number"
+            step={step}
+            value={lengthValue(l.height, unit)}
+            onChange={(e) => updateItem(it.id, { light: { ...l, height: Math.max(0.1, toMeters(+e.target.value, unit)) } })}
+          />
+        </div>
+        <div className="row2">
+          <div className="field">
+            <label>X ({unit})</label>
+            <input
+              type="number"
+              step={step}
+              value={lengthValue(it.position.x, unit)}
+              onChange={(e) => updateItem(it.id, { position: { ...it.position, x: toMeters(+e.target.value, unit) } })}
+            />
+          </div>
+          <div className="field">
+            <label>Y ({unit})</label>
+            <input
+              type="number"
+              step={step}
+              value={lengthValue(it.position.y, unit)}
+              onChange={(e) => updateItem(it.id, { position: { ...it.position, y: toMeters(+e.target.value, unit) } })}
+            />
+          </div>
+        </div>
+        <button className="danger" onClick={deleteSelection}>
+          Delete light
+        </button>
+      </div>
+    )
+  }
 
   // custom cabinet
   if (it.cabinet) {
@@ -277,8 +356,11 @@ function RoomProps({
   setRoomName: (key: string, name: string) => void
 }) {
   const walls = useDesignStore((s) => s.walls)
-  const room = detectRooms(walls).find((r) => r.key === roomKey)
-  const idx = detectRooms(walls).findIndex((r) => r.key === roomKey)
+  const roomFloors = useDesignStore((s) => s.roomFloors)
+  const setRoomFloor = useDesignStore((s) => s.setRoomFloor)
+  const rooms = detectRooms(walls)
+  const room = rooms.find((r) => r.key === roomKey)
+  const idx = rooms.findIndex((r) => r.key === roomKey)
   const [name, setName] = useState(roomNames[roomKey] ?? '')
 
   useEffect(() => {
@@ -316,8 +398,21 @@ function RoomProps({
         <label>Floor area</label>
         <input value={formatArea(room.area)} disabled />
       </div>
+      <div className="field">
+        <label>Flooring</label>
+        <select
+          value={roomFloors[roomKey] ?? DEFAULT_FLOORING}
+          onChange={(e) => setRoomFloor(roomKey, e.target.value)}
+        >
+          {floorings.map((f) => (
+            <option key={f.key} value={f.key}>
+              {f.name}
+            </option>
+          ))}
+        </select>
+      </div>
       <p className="empty-note">
-        Renaming sticks as long as this room's corners don't change.
+        Renaming &amp; flooring stick as long as this room's corners don't change.
       </p>
     </div>
   )

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDesignStore } from '../store/useDesignStore'
 import { productById } from '../data/catalog'
-import type { Vec2 } from '../types'
 import {
   dist,
   lerp,
   nearestWall,
+  projectPointToSegment,
   snapToEndpoints,
   snapToGrid,
   sub,
@@ -13,15 +13,44 @@ import {
 import { detectRooms, pointInPolygon } from '../lib/rooms'
 import { formatArea, formatLength, lengthValue, toMeters } from '../lib/units'
 import { defaultCabinet } from '../data/cabinet'
-import type { PlacedItem } from '../types'
+import { flooringByKey, DEFAULT_FLOORING } from '../data/flooring'
+import type { PlacedItem, Vec2, Wall } from '../types'
 
-/** Footprint + display info for a placed item (catalog product or cabinet). */
+const DEFAULT_WALL_COLOR = '#cbd3e1'
+
+/** Footprint + display info for a placed item (catalog product, cabinet, light). */
 function footprintOf(it: PlacedItem) {
+  if (it.light) {
+    return { width: 0.3, depth: 0.3, color: it.light.color, name: 'Light' }
+  }
   if (it.cabinet) {
     return { width: it.cabinet.width, depth: it.cabinet.depth, color: it.cabinet.color, name: it.cabinet.name }
   }
   const p = productById(it.productId)
   return p ? { width: p.width, depth: p.depth, color: p.color, name: p.name } : null
+}
+
+/** Snap a cabinet so its back rests against the nearest wall, facing the room. */
+function snapCabinetToWall(
+  depth: number,
+  pos: Vec2,
+  walls: Wall[],
+): { position: Vec2; rotation: number } | null {
+  const hit = nearestWall(pos, walls, 0.7)
+  if (!hit) return null
+  const w = hit.wall
+  const proj = projectPointToSegment(pos, w.start, w.end).point
+  const dx = w.end.x - w.start.x
+  const dy = w.end.y - w.start.y
+  const len = Math.hypot(dx, dy) || 1
+  let n = { x: -dy / len, y: dx / len }
+  const toItem = { x: pos.x - proj.x, y: pos.y - proj.y }
+  if (toItem.x * n.x + toItem.y * n.y < 0) n = { x: -n.x, y: -n.y }
+  const offset = depth / 2 + (w.thickness ?? 0.1) / 2
+  return {
+    position: { x: proj.x + n.x * offset, y: proj.y + n.y * offset },
+    rotation: Math.atan2(-n.x, n.y),
+  }
 }
 
 const BASE_PPM = 100 // pixels per meter at zoom = 1
@@ -46,8 +75,8 @@ export default function FloorPlanCanvas() {
 
   const store = useDesignStore()
   const {
-    walls, openings, items, camera, tool, selection, placingProductId, placingModelId,
-    snapEnabled, orthoEnabled, snapIncrement, gridSize, unit, roomNames,
+    walls, openings, items, camera, tool, selection, placingProductId, placingModelId, placingLight,
+    snapEnabled, orthoEnabled, snapIncrement, gridSize, unit, roomNames, roomFloors,
   } = store
 
   const rooms = useMemo(() => detectRooms(walls), [walls])
@@ -193,18 +222,29 @@ export default function FloorPlanCanvas() {
         return
       }
 
-      if (tool === 'place' && (placingProductId || placingModelId)) {
+      if (tool === 'place' && (placingProductId || placingModelId || placingLight)) {
         const pos = snap(world)
-        if (placingModelId) {
+        if (placingLight) {
+          const id = store.addLightItem(pos)
+          store.setSelection({ kind: 'item', id })
+        } else if (placingModelId) {
           if (placingModelId === '__new__') {
-            const id = store.addCabinetItem(defaultCabinet(), pos)
+            const spec = defaultCabinet()
+            const snapped = snapCabinetToWall(spec.depth, pos, walls)
+            const id = store.addCabinetItem(spec, snapped?.position ?? pos)
+            if (snapped) store.updateItem(id, { rotation: snapped.rotation })
             store.setSelection({ kind: 'item', id })
             store.setPlacingModel(null)
             store.openCabinetEditor(id)
           } else {
             const model = store.models.find((m) => m.id === placingModelId)
             if (model) {
-              const id = store.addCabinetItem({ ...model.spec, accessories: model.spec.accessories.map((a) => ({ ...a })) }, pos)
+              const snapped = snapCabinetToWall(model.spec.depth, pos, walls)
+              const id = store.addCabinetItem(
+                { ...model.spec, accessories: model.spec.accessories.map((a) => ({ ...a })) },
+                snapped?.position ?? pos,
+              )
+              if (snapped) store.updateItem(id, { rotation: snapped.rotation })
               store.setSelection({ kind: 'item', id })
             }
           }
@@ -273,7 +313,7 @@ export default function FloorPlanCanvas() {
 
       store.setSelection(null)
     },
-    [tool, interaction, selection, walls, openings, camera, placingProductId, placingModelId, ppm, rooms, snap, snapDraw, screenToWorld, getMouse, itemAt, store],
+    [tool, interaction, selection, walls, openings, camera, placingProductId, placingModelId, placingLight, ppm, rooms, snap, snapDraw, screenToWorld, getMouse, itemAt, store],
   )
 
   const onPointerMove = useCallback(
@@ -312,10 +352,17 @@ export default function FloorPlanCanvas() {
     (e: React.PointerEvent) => {
       canvasRef.current?.releasePointerCapture(e.pointerId)
       switch (interaction.type) {
-        case 'drag-item':
-          store.updateItem(interaction.id, { position: interaction.current })
+        case 'drag-item': {
+          const dragged = items.find((x) => x.id === interaction.id)
+          if (dragged?.cabinet) {
+            const snapped = snapCabinetToWall(dragged.cabinet.depth, interaction.current, walls)
+            store.updateItem(interaction.id, snapped ?? { position: interaction.current })
+          } else {
+            store.updateItem(interaction.id, { position: interaction.current })
+          }
           setInteraction({ type: 'idle' })
           break
+        }
         case 'drag-endpoint':
           store.moveJoint(interaction.origin, interaction.current)
           setInteraction({ type: 'idle' })
@@ -346,7 +393,7 @@ export default function FloorPlanCanvas() {
           break
       }
     },
-    [interaction, walls, store],
+    [interaction, walls, items, store],
   )
 
   const onDoubleClick = useCallback(
@@ -422,7 +469,12 @@ export default function FloorPlanCanvas() {
         else ctx.lineTo(sp.x, sp.y)
       })
       ctx.closePath()
-      ctx.fillStyle = selected ? 'rgba(47,109,246,0.22)' : 'rgba(120,160,255,0.08)'
+      if (selected) {
+        ctx.fillStyle = 'rgba(47,109,246,0.28)'
+      } else {
+        const fl = flooringByKey(roomFloors[room.key] ?? DEFAULT_FLOORING)
+        ctx.fillStyle = hexWithAlpha(fl.color, 0.22)
+      }
       ctx.fill()
       const c = worldToScreen(room.centroid)
       const name = roomNames[room.key] ?? `Room ${idx + 1}`
@@ -442,7 +494,7 @@ export default function FloorPlanCanvas() {
       const b = worldToScreen(w.end)
       const selected = selection?.kind === 'wall' && selection.id === w.id
       ctx.lineCap = 'round'
-      ctx.strokeStyle = selected ? '#2f6df6' : '#cbd3e1'
+      ctx.strokeStyle = selected ? '#2f6df6' : w.color ?? DEFAULT_WALL_COLOR
       ctx.lineWidth = Math.max(2, w.thickness * ppm)
       ctx.beginPath()
       ctx.moveTo(a.x, a.y)
@@ -512,6 +564,29 @@ export default function FloorPlanCanvas() {
       if (interaction.type === 'drag-item' && interaction.id === it.id) pos = interaction.current
       const c = worldToScreen(pos)
       const selected = selection?.kind === 'item' && selection.id === it.id
+
+      // light fixtures get a glyph instead of a footprint box
+      if (it.light) {
+        const r = 9
+        ctx.save()
+        ctx.strokeStyle = selected ? '#2f6df6' : '#ffcf5c'
+        ctx.fillStyle = selected ? 'rgba(47,109,246,0.25)' : 'rgba(255,207,92,0.25)'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(c.x, c.y, r, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+        for (let k = 0; k < 8; k++) {
+          const a2 = (k / 8) * Math.PI * 2
+          ctx.beginPath()
+          ctx.moveTo(c.x + Math.cos(a2) * (r + 2), c.y + Math.sin(a2) * (r + 2))
+          ctx.lineTo(c.x + Math.cos(a2) * (r + 6), c.y + Math.sin(a2) * (r + 6))
+          ctx.stroke()
+        }
+        ctx.restore()
+        continue
+      }
+
       ctx.save()
       ctx.translate(c.x, c.y)
       ctx.rotate(it.rotation)
@@ -576,6 +651,21 @@ export default function FloorPlanCanvas() {
       }
     }
 
+    // light placement ghost
+    if (tool === 'place' && placingLight) {
+      const c = worldToScreen(snap(mouseWorld))
+      ctx.save()
+      ctx.globalAlpha = 0.6
+      ctx.strokeStyle = '#ffcf5c'
+      ctx.fillStyle = 'rgba(255,207,92,0.3)'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.arc(c.x, c.y, 9, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.stroke()
+      ctx.restore()
+    }
+
     // place-tool ghost
     if (tool === 'place' && (placingProductId || placingModelId)) {
       let ghost: { width: number; depth: number; color: string } | null = null
@@ -606,7 +696,7 @@ export default function FloorPlanCanvas() {
     }
   }, [
     size, walls, openings, items, camera, selection, interaction, mouseWorld,
-    tool, placingProductId, placingModelId, gridSize, ppm, unit, rooms, roomNames, worldToScreen, snap, snapDraw, store,
+    tool, placingProductId, placingModelId, placingLight, gridSize, ppm, unit, rooms, roomNames, roomFloors, worldToScreen, snap, snapDraw, store,
   ])
 
   // inline editable length for the selected wall

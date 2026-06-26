@@ -11,6 +11,8 @@ export default function Catalog() {
   const placingModelId = useDesignStore((s) => s.placingModelId)
   const setPlacingModel = useDesignStore((s) => s.setPlacingModel)
   const deleteModel = useDesignStore((s) => s.deleteModel)
+  const placingLight = useDesignStore((s) => s.placingLight)
+  const setPlacingLight = useDesignStore((s) => s.setPlacingLight)
 
   return (
     <div className="sidebar">
@@ -54,6 +56,19 @@ export default function Catalog() {
           </button>
         </div>
       ))}
+
+      <div className="section-title">Lighting</div>
+      <button
+        className={`new-cabinet-btn ${placingLight ? 'active' : ''}`}
+        style={{ background: placingLight ? '#caa400' : '#3a3526', borderColor: '#caa400', color: '#ffe9a8' }}
+        onClick={() => setPlacingLight(!placingLight)}
+      >
+        💡 Ceiling Light
+      </button>
+      <div className="empty-note" style={{ margin: '6px 0 8px' }}>
+        Click to place point lights; tune color, brightness and height in
+        Properties. Switch to 3D to see them.
+      </div>
 
       <div className="section-title">Catalog</div>
       <div className="empty-note" style={{ marginBottom: 8 }}>

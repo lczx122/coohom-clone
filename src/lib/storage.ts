@@ -1,4 +1,4 @@
-import type { CabinetModelTemplate, DesignSnapshot } from '../types'
+import type { CabinetModelTemplate, DesignSnapshot, EnvKind } from '../types'
 import type { Unit } from './units'
 import { uid } from './geometry'
 
@@ -21,7 +21,9 @@ export interface ProjectData {
   meta: ProjectMeta
   snapshot: DesignSnapshot
   roomNames: Record<string, string>
+  roomFloors: Record<string, string>
   unit: Unit
+  environment: EnvKind
 }
 
 const INDEX_KEY = 'floorplanner.projects.index'
@@ -79,7 +81,9 @@ export function createProject(name: string): ProjectData {
     meta: { id: uid('proj'), name, updatedAt: nowSafe() },
     snapshot: { walls: [], openings: [], items: [] },
     roomNames: {},
+    roomFloors: {},
     unit: 'mm',
+    environment: 'studio',
   }
   saveProject(data)
   setCurrentId(data.meta.id)
@@ -131,7 +135,9 @@ export function bootstrap(): ProjectData {
       meta: { id: uid('proj'), name: 'My First Plan', updatedAt: nowSafe() },
       snapshot: legacy,
       roomNames: {},
+      roomFloors: {},
       unit: 'mm',
+      environment: 'studio',
     }
     saveProject(data)
     setCurrentId(data.meta.id)

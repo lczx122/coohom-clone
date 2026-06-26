@@ -20,6 +20,8 @@ export interface Wall {
   thickness: number
   /** wall height in meters (used by the 3D view) */
   height: number
+  /** optional wall color (falls back to a default when unset) */
+  color?: string
 }
 
 export type OpeningKind = 'door' | 'window'
@@ -49,7 +51,21 @@ export interface PlacedItem {
   rotation: number
   /** when present, this item is a custom parametric cabinet */
   cabinet?: CabinetSpec
+  /** when present, this item is a light fixture */
+  light?: LightSpec
 }
+
+/** A placeable light fixture. */
+export interface LightSpec {
+  color: string
+  /** luminous intensity (arbitrary 0..5-ish) */
+  intensity: number
+  /** mounting height in meters */
+  height: number
+}
+
+/** 3D environment / backdrop for a project. */
+export type EnvKind = 'studio' | 'outdoor'
 
 // --- Parametric cabinets -----------------------------------------------------
 

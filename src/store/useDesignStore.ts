@@ -3,6 +3,7 @@ import type {
   CabinetModelTemplate,
   CabinetSpec,
   DesignSnapshot,
+  EnvKind,
   Opening,
   OpeningKind,
   PlacedItem,
@@ -16,6 +17,7 @@ import { dist, uid } from '../lib/geometry'
 import type { Unit } from '../lib/units'
 import * as storage from '../lib/storage'
 import type { ProjectMeta } from '../lib/storage'
+import { buildSample } from '../data/samples'
 
 interface Camera {
   zoom: number
@@ -31,6 +33,8 @@ interface DesignState {
   openings: Opening[]
   items: PlacedItem[]
   roomNames: Record<string, string>
+  roomFloors: Record<string, string>
+  environment: EnvKind
 
   // --- projects ---
   projects: ProjectMeta[]
@@ -43,6 +47,8 @@ interface DesignState {
   placingProductId: string | null
   /** when set, the next canvas click places a cabinet (model id, or '__new__') */
   placingModelId: string | null
+  /** when true, the next canvas click places a light fixture */
+  placingLight: boolean
   /** item id whose cabinet is open in the cabinet editor, or null */
   editingItemId: string | null
   camera: Camera
@@ -88,6 +94,17 @@ interface DesignState {
   saveModel: (spec: CabinetSpec) => void
   deleteModel: (id: string) => void
 
+  // lights & environment
+  setPlacingLight: (v: boolean) => void
+  addLightItem: (position: Vec2) => string
+  setEnvironment: (env: EnvKind) => void
+
+  // rooms
+  setRoomFloor: (key: string, flooringKey: string) => void
+
+  // samples
+  loadSample: (key: string) => void
+
   deleteSelection: () => void
 
   setCamera: (patch: Partial<Camera>) => void
@@ -129,7 +146,9 @@ export const useDesignStore = create<DesignState>((set, get) => {
       meta: { id: s.currentProjectId, name: s.currentProjectName, updatedAt: 0 },
       snapshot: { walls: s.walls, openings: s.openings, items: s.items },
       roomNames: s.roomNames,
+      roomFloors: s.roomFloors,
       unit: s.unit,
+      environment: s.environment,
     })
     set({ projects: storage.listProjects() })
   }
@@ -139,6 +158,8 @@ export const useDesignStore = create<DesignState>((set, get) => {
     openings: boot.snapshot.openings,
     items: boot.snapshot.items,
     roomNames: boot.roomNames ?? {},
+    roomFloors: boot.roomFloors ?? {},
+    environment: boot.environment ?? 'studio',
 
     projects: storage.listProjects(),
     currentProjectId: boot.meta.id,
@@ -148,6 +169,7 @@ export const useDesignStore = create<DesignState>((set, get) => {
     selection: null,
     placingProductId: null,
     placingModelId: null,
+    placingLight: false,
     editingItemId: null,
     models: storage.listModels(),
     camera: { zoom: 1, panX: 480, panY: 320 },
@@ -164,7 +186,7 @@ export const useDesignStore = create<DesignState>((set, get) => {
     setTool: (tool) => set({ tool, selection: null }),
     setSelection: (selection) => set({ selection }),
     setPlacingProduct: (placingProductId) =>
-      set({ placingProductId, placingModelId: null, tool: placingProductId ? 'place' : 'select' }),
+      set({ placingProductId, placingModelId: null, placingLight: false, tool: placingProductId ? 'place' : 'select' }),
 
     addWall: (start, end) => {
       const id = uid('wall')
@@ -246,7 +268,7 @@ export const useDesignStore = create<DesignState>((set, get) => {
 
     // ---- cabinets ----
     setPlacingModel: (placingModelId) =>
-      set({ placingModelId, placingProductId: null, tool: placingModelId ? 'place' : 'select' }),
+      set({ placingModelId, placingProductId: null, placingLight: false, tool: placingModelId ? 'place' : 'select' }),
 
     addCabinetItem: (spec, position) => {
       const id = uid('item')
@@ -278,6 +300,65 @@ export const useDesignStore = create<DesignState>((set, get) => {
     deleteModel: (id) => {
       storage.deleteModel(id)
       set({ models: storage.listModels() })
+    },
+
+    // ---- lights & environment ----
+    setPlacingLight: (placingLight) =>
+      set({ placingLight, placingProductId: null, placingModelId: null, tool: placingLight ? 'place' : 'select' }),
+
+    addLightItem: (position) => {
+      const id = uid('item')
+      set((s) => ({
+        ...checkpoint(),
+        items: [
+          ...s.items,
+          { id, productId: 'light', position, rotation: 0, light: { color: '#fff3da', intensity: 1.4, height: 2.5 } },
+        ],
+      }))
+      save()
+      return id
+    },
+
+    setEnvironment: (environment) => {
+      set({ environment })
+      save()
+    },
+
+    // ---- rooms ----
+    setRoomFloor: (key, flooringKey) => {
+      set((s) => ({ roomFloors: { ...s.roomFloors, [key]: flooringKey } }))
+      save()
+    },
+
+    // ---- samples ----
+    loadSample: (key) => {
+      const sample = buildSample(key)
+      if (!sample) return
+      const data = storage.createProject(sample.name)
+      const full = {
+        ...data,
+        snapshot: sample.snapshot,
+        roomFloors: sample.roomFloors ?? {},
+        roomNames: sample.roomNames ?? {},
+        environment: sample.environment,
+      }
+      storage.saveProject(full)
+      storage.setCurrentId(full.meta.id)
+      set({
+        walls: full.snapshot.walls,
+        openings: full.snapshot.openings,
+        items: full.snapshot.items,
+        roomNames: full.roomNames,
+        roomFloors: full.roomFloors,
+        environment: full.environment,
+        unit: full.unit,
+        currentProjectId: full.meta.id,
+        currentProjectName: full.meta.name,
+        projects: storage.listProjects(),
+        selection: null,
+        past: [],
+        future: [],
+      })
     },
 
     deleteSelection: () => {
@@ -324,6 +405,8 @@ export const useDesignStore = create<DesignState>((set, get) => {
         openings: [],
         items: [],
         roomNames: {},
+        roomFloors: {},
+        environment: 'studio',
         currentProjectId: data.meta.id,
         currentProjectName: data.meta.name,
         projects: storage.listProjects(),
@@ -340,7 +423,9 @@ export const useDesignStore = create<DesignState>((set, get) => {
         meta: { id: s.currentProjectId, name: s.currentProjectName, updatedAt: 0 },
         snapshot: { walls: s.walls, openings: s.openings, items: s.items },
         roomNames: s.roomNames,
+        roomFloors: s.roomFloors,
         unit: s.unit,
+        environment: s.environment,
       })
       const data = storage.loadProject(id)
       if (!data) return
@@ -350,6 +435,8 @@ export const useDesignStore = create<DesignState>((set, get) => {
         openings: data.snapshot.openings,
         items: data.snapshot.items,
         roomNames: data.roomNames ?? {},
+        roomFloors: data.roomFloors ?? {},
+        environment: data.environment ?? 'studio',
         unit: data.unit ?? 'mm',
         currentProjectId: data.meta.id,
         currentProjectName: data.meta.name,
