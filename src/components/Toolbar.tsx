@@ -15,13 +15,7 @@ const TOOLS: { tool: Tool; label: string; icon: string; hint: string }[] = [
   { tool: 'pan', label: 'Pan', icon: '✋', hint: 'Pan view (H)' },
 ]
 
-export default function Toolbar({
-  view,
-  setView,
-}: {
-  view: '2d' | '3d'
-  setView: (v: '2d' | '3d') => void
-}) {
+export default function Toolbar({ view }: { view: '2d' | '3d' }) {
   const tool = useDesignStore((s) => s.tool)
   const setTool = useDesignStore((s) => s.setTool)
   const undo = useDesignStore((s) => s.undo)
@@ -189,15 +183,6 @@ export default function Toolbar({
       <button className="icon-btn" onClick={doExport}>
         Export
       </button>
-
-      <div className="view-toggle" style={{ position: 'static' }}>
-        <button className={`tool-btn ${view === '2d' ? 'active' : ''}`} onClick={() => setView('2d')} style={{ minWidth: 40 }}>
-          2D
-        </button>
-        <button className={`tool-btn ${view === '3d' ? 'active' : ''}`} onClick={() => setView('3d')} style={{ minWidth: 40 }}>
-          3D
-        </button>
-      </div>
 
       {authStatus === 'signedIn' && (
         <div className="account">

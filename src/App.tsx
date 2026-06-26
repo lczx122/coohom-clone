@@ -13,6 +13,8 @@ import type { Tool } from './types'
 
 export default function App() {
   const [view, setView] = useState<'2d' | '3d'>('2d')
+  const [leftCollapsed, setLeftCollapsed] = useState(false)
+  const [rightCollapsed, setRightCollapsed] = useState(false)
   const setTool = useDesignStore((s) => s.setTool)
   const deleteSelection = useDesignStore((s) => s.deleteSelection)
   const undo = useDesignStore((s) => s.undo)
@@ -130,14 +132,45 @@ export default function App() {
     return <AuthGate />
   }
 
+  const leftW = leftCollapsed ? 0 : 240
+  const rightW = rightCollapsed ? 0 : 260
+
   return (
-    <div className="app">
-      <Toolbar view={view} setView={setView} />
-      <Catalog />
+    <div className="app" style={{ gridTemplateColumns: `${leftW}px 1fr ${rightW}px` }}>
+      <Toolbar view={view} />
+      {!leftCollapsed && <Catalog />}
       {view === '2d' ? <FloorPlanCanvas /> : <View3D />}
-      <PropertiesPanel />
+      {!rightCollapsed && <PropertiesPanel />}
       <StatusBar />
       <CabinetEditor />
+
+      {/* floating 2D/3D view switch — always reachable regardless of toolbar width */}
+      <div className="floating-view">
+        <button className={`tool-btn ${view === '2d' ? 'active' : ''}`} onClick={() => setView('2d')} style={{ minWidth: 44 }}>
+          2D
+        </button>
+        <button className={`tool-btn ${view === '3d' ? 'active' : ''}`} onClick={() => setView('3d')} style={{ minWidth: 44 }}>
+          3D
+        </button>
+      </div>
+
+      {/* sidebar collapse / expand handles */}
+      <button
+        className="col-toggle"
+        style={{ left: leftCollapsed ? 4 : leftW - 14 }}
+        title={leftCollapsed ? 'Show catalog' : 'Hide catalog'}
+        onClick={() => setLeftCollapsed((v) => !v)}
+      >
+        {leftCollapsed ? '›' : '‹'}
+      </button>
+      <button
+        className="col-toggle"
+        style={{ right: rightCollapsed ? 4 : rightW - 14 }}
+        title={rightCollapsed ? 'Show properties' : 'Hide properties'}
+        onClick={() => setRightCollapsed((v) => !v)}
+      >
+        {rightCollapsed ? '‹' : '›'}
+      </button>
     </div>
   )
 }
