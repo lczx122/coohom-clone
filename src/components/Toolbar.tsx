@@ -11,6 +11,7 @@ const TOOLS: { tool: Tool; label: string; icon: string; hint: string }[] = [
   { tool: 'wall', label: 'Wall', icon: '╱', hint: 'Draw walls (W)' },
   { tool: 'door', label: 'Door', icon: '⌶', hint: 'Add door (D)' },
   { tool: 'window', label: 'Window', icon: '□', hint: 'Add window (N)' },
+  { tool: 'sketch', label: 'Sketch', icon: '✎', hint: 'Sketch → cabinets (K)' },
   { tool: 'pan', label: 'Pan', icon: '✋', hint: 'Pan view (H)' },
 ]
 

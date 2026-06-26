@@ -141,6 +141,49 @@ button {
   font-size: 12px;
 }
 
+/* ---------- Sketch options bar ---------- */
+.sketch-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.sketch-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-right: 2px;
+}
+.sketch-w {
+  min-width: 40px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.sketch-w:hover {
+  border-color: var(--brand);
+}
+.sketch-w.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+.sketch-unit {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 /* ---------- Inline wall length editor ---------- */
 .len-editor {
   position: absolute;

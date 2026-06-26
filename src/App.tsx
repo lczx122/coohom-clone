@@ -90,6 +90,10 @@ export default function App() {
         case 'H':
           setTool('pan')
           break
+        case 'k':
+        case 'K':
+          setTool('sketch')
+          break
         case 'r':
         case 'R': {
           const st = useDesignStore.getState()

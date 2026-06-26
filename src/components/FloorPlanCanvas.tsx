@@ -9,8 +9,10 @@ import {
   snapToEndpoints,
   snapToGrid,
   sub,
+  uid,
 } from '../lib/geometry'
 import { detectRooms, pointInPolygon } from '../lib/rooms'
+import { generateRun } from '../lib/sketch'
 import { formatArea, formatLength, lengthValue, toMeters } from '../lib/units'
 import { defaultCabinet } from '../data/cabinet'
 import { flooringByKey, DEFAULT_FLOORING } from '../data/flooring'
@@ -63,6 +65,9 @@ type Interaction =
   | { type: 'drag-wall'; id: string; start0: Vec2; end0: Vec2; grab: Vec2; current: Vec2 }
   | { type: 'drag-endpoint'; origin: Vec2; current: Vec2 }
   | { type: 'drag-opening'; id: string; current: Vec2 }
+  | { type: 'sketching'; points: Vec2[] }
+
+const SKETCH_WIDTHS = [0.4, 0.5, 0.6, 0.8]
 
 export default function FloorPlanCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -72,6 +77,8 @@ export default function FloorPlanCanvas() {
   const [mouseWorld, setMouseWorld] = useState<Vec2>({ x: 0, y: 0 })
   const [shiftHeld, setShiftHeld] = useState(false)
   const [lenDraft, setLenDraft] = useState('')
+  const [sketchWidth, setSketchWidth] = useState(0.6)
+  const sketchDepth = 0.6
 
   const store = useDesignStore()
   const {
@@ -182,6 +189,17 @@ export default function FloorPlanCanvas() {
     [items],
   )
 
+  // resolve a stroke into a cabinet run facing the relevant room's interior
+  const computeRun = useCallback(
+    (points: Vec2[]) => {
+      let facing: Vec2 | null = null
+      if (selection?.kind === 'room') facing = rooms.find((r) => r.key === selection.id)?.centroid ?? null
+      if (!facing && points[0]) facing = rooms.find((r) => pointInPolygon(points[0], r.polygon))?.centroid ?? null
+      return generateRun(points, sketchWidth, sketchDepth, facing)
+    },
+    [selection, rooms, sketchWidth, sketchDepth],
+  )
+
   // ----- pointer handlers -----
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -200,6 +218,11 @@ export default function FloorPlanCanvas() {
 
       if (middle || tool === 'pan' || space) {
         setInteraction({ type: 'panning', startScreen: screen, startPan: { x: camera.panX, y: camera.panY } })
+        return
+      }
+
+      if (tool === 'sketch') {
+        setInteraction({ type: 'sketching', points: [world] })
         return
       }
 
@@ -341,6 +364,13 @@ export default function FloorPlanCanvas() {
         case 'drag-opening':
           setInteraction({ ...interaction, current: world })
           break
+        case 'sketching': {
+          const last = interaction.points[interaction.points.length - 1]
+          if (!last || dist(last, world) > 0.04) {
+            setInteraction({ type: 'sketching', points: [...interaction.points, world] })
+          }
+          break
+        }
         default:
           break
       }
@@ -389,11 +419,26 @@ export default function FloorPlanCanvas() {
         case 'panning':
           setInteraction({ type: 'idle' })
           break
+        case 'sketching': {
+          const run = computeRun(interaction.points)
+          if (run.length > 0) {
+            const newItems: PlacedItem[] = run.map((r) => ({
+              id: uid('item'),
+              productId: 'custom-cabinet',
+              position: r.position,
+              rotation: r.rotation,
+              cabinet: { ...defaultCabinet('Cabinet'), width: r.width, depth: sketchDepth },
+            }))
+            store.addItems(newItems)
+          }
+          setInteraction({ type: 'idle' })
+          break
+        }
         default:
           break
       }
     },
-    [interaction, walls, items, store],
+    [interaction, walls, items, computeRun, sketchDepth, store],
   )
 
   const onDoubleClick = useCallback(
@@ -651,6 +696,49 @@ export default function FloorPlanCanvas() {
       }
     }
 
+    // sketch-to-cabinet: stroke + live cabinet run preview
+    if (interaction.type === 'sketching') {
+      const pts = interaction.points
+      // stroke
+      ctx.save()
+      ctx.strokeStyle = 'rgba(47,109,246,0.7)'
+      ctx.lineWidth = 2
+      ctx.setLineDash([5, 4])
+      ctx.beginPath()
+      pts.forEach((p, i) => {
+        const s = worldToScreen(p)
+        if (i === 0) ctx.moveTo(s.x, s.y)
+        else ctx.lineTo(s.x, s.y)
+      })
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.restore()
+
+      // ghost cabinets
+      const run = computeRun(pts)
+      for (const r of run) {
+        const c = worldToScreen(r.position)
+        ctx.save()
+        ctx.translate(c.x, c.y)
+        ctx.rotate(r.rotation)
+        ctx.globalAlpha = 0.55
+        ctx.fillStyle = defaultCabinet().color
+        ctx.strokeStyle = '#2f6df6'
+        ctx.lineWidth = 1.5
+        const w = r.width * ppm
+        const d = sketchDepth * ppm
+        ctx.beginPath()
+        ctx.rect(-w / 2, -d / 2, w, d)
+        ctx.fill()
+        ctx.stroke()
+        ctx.restore()
+      }
+      if (run.length > 0) {
+        const head = worldToScreen(run[0].position)
+        drawLabel(ctx, `${run.length} cabinets`, head.x, head.y - 8)
+      }
+    }
+
     // light placement ghost
     if (tool === 'place' && placingLight) {
       const c = worldToScreen(snap(mouseWorld))
@@ -696,7 +784,8 @@ export default function FloorPlanCanvas() {
     }
   }, [
     size, walls, openings, items, camera, selection, interaction, mouseWorld,
-    tool, placingProductId, placingModelId, placingLight, gridSize, ppm, unit, rooms, roomNames, roomFloors, worldToScreen, snap, snapDraw, store,
+    tool, placingProductId, placingModelId, placingLight, gridSize, ppm, unit, rooms, roomNames, roomFloors,
+    computeRun, sketchDepth, worldToScreen, snap, snapDraw, store,
   ])
 
   // inline editable length for the selected wall
@@ -715,13 +804,17 @@ export default function FloorPlanCanvas() {
   }
 
   const cursor =
-    tool === 'pan' ? 'grab' : tool === 'wall' || tool === 'place' ? 'crosshair' : 'default'
+    tool === 'pan'
+      ? 'grab'
+      : tool === 'wall' || tool === 'place' || tool === 'sketch'
+      ? 'crosshair'
+      : 'default'
 
   return (
     <div className="canvas-wrap" ref={wrapRef}>
       <canvas
         ref={canvasRef}
-        style={{ cursor }}
+        style={{ cursor, touchAction: 'none' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -748,9 +841,35 @@ export default function FloorPlanCanvas() {
         </div>
       )}
 
+      {tool === 'sketch' && (
+        <div className="sketch-bar">
+          <span className="sketch-label">Cabinet width</span>
+          {SKETCH_WIDTHS.map((w) => (
+            <button
+              key={w}
+              className={`sketch-w ${Math.abs(sketchWidth - w) < 1e-6 ? 'active' : ''}`}
+              onClick={() => setSketchWidth(w)}
+            >
+              {lengthValue(w, unit)}
+            </button>
+          ))}
+          <span className="sketch-unit">{unit}</span>
+        </div>
+      )}
+
       <div className="canvas-hint">
-        <b>Wall tool:</b> left-click to add points · right-click to finish &amp; switch to cursor ·
-        hold <b>Shift</b> to snap to right angles · double-click a cabinet to edit
+        {tool === 'sketch' ? (
+          <>
+            <b>Sketch → cabinets:</b> select a room, then drag a stroke (mouse or
+            stylus) along a wall. Cabinets generate live and drop in when you
+            release.
+          </>
+        ) : (
+          <>
+            <b>Wall tool:</b> left-click to add points · right-click to finish &amp; switch to
+            cursor · hold <b>Shift</b> to snap to right angles · double-click a cabinet to edit
+          </>
+        )}
       </div>
     </div>
   )

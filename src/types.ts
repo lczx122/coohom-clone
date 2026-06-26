@@ -10,6 +10,7 @@ export type Tool =
   | 'window'
   | 'place'
   | 'pan'
+  | 'sketch'
 
 /** A straight wall segment between two points. */
 export interface Wall {

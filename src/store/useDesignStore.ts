@@ -84,6 +84,8 @@ interface DesignState {
   updateOpening: (id: string, patch: Partial<Opening>) => void
 
   addItem: (productId: string, position: Vec2) => string
+  /** Add many items in a single undo step (used by sketch-to-cabinet). */
+  addItems: (items: PlacedItem[]) => void
   updateItem: (id: string, patch: Partial<PlacedItem>) => void
 
   // cabinets
@@ -264,6 +266,12 @@ export const useDesignStore = create<DesignState>((set, get) => {
       set((s) => ({ ...checkpoint(), items: [...s.items, { id, productId, position, rotation: 0 }] }))
       save()
       return id
+    },
+
+    addItems: (newItems) => {
+      if (newItems.length === 0) return
+      set((s) => ({ ...checkpoint(), items: [...s.items, ...newItems] }))
+      save()
     },
 
     updateItem: (id, patch) => {

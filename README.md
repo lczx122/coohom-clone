@@ -37,6 +37,10 @@ npm run typecheck  # types only
 - **Per-wall color**: select a wall and set its color (reflected in 2D and 3D).
 - **Cabinets snap to walls**: placing or moving a cabinet near a wall clings its
   back to the wall and orients it to face into the room.
+- **Sketch → cabinets**: with the **Sketch** tool, select a room and drag a
+  stroke (mouse or stylus/touch) along a wall — a run of cabinets generates live
+  along the path, angled to the wall and facing into the room, and drops in when
+  you release. Pick the cabinet width from the on-canvas bar.
 - **Lighting**: place ceiling point-lights (sidebar → *Lighting*) and tune their
   color, brightness, and height; they illuminate the 3D view.
 - Units default to **millimeters** (switch to meters in the top bar).
