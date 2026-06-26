@@ -116,6 +116,14 @@ export interface CabinetSpec {
   toeKick?: number
   /** detailed interior layout; when present it supersedes doors/shelves */
   sections?: CabinetSection[]
+  /** base = stands on floor; wall = mounted up the wall */
+  kind?: 'base' | 'wall'
+  /** for wall cabinets: height of the cabinet's underside above the floor (m) */
+  mountHeight?: number
+  /** base cabinets: render a worktop slab on top */
+  worktop?: boolean
+  worktopThickness?: number
+  worktopColor?: string
 }
 
 /** A reusable saved cabinet template. */

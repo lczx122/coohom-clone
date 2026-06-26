@@ -78,6 +78,32 @@ export function defaultCabinet(name = 'New Cabinet'): CabinetSpec {
     accessories: [],
     toeKick: 0.1,
     sections: [newSection(1, 'door-double')],
+    kind: 'base',
+    worktop: true,
+    worktopThickness: 0.04,
+    worktopColor: '#d9d6cf',
+  }
+}
+
+/** A sensible default wall (upper) cabinet. */
+export function defaultWallCabinet(name = 'Wall Cabinet'): CabinetSpec {
+  return {
+    name,
+    width: 0.6,
+    height: 0.72,
+    depth: 0.35,
+    panelThickness: 0.018,
+    material: 'white',
+    color: materialColor('white'),
+    doors: 'double',
+    hingeType: 'soft-close',
+    shelves: 2,
+    accessories: [],
+    toeKick: 0,
+    sections: [newSection(1, 'door-double')],
+    kind: 'wall',
+    mountHeight: 1.5,
+    worktop: false,
   }
 }
 

@@ -256,10 +256,34 @@ function SectionsCabinet({ spec, open }: { spec: CabinetSpec; open: boolean }) {
   )
 }
 
-export default function CabinetModel({ spec, open = false }: { spec: CabinetSpec; open?: boolean }) {
-  if (spec.sections && spec.sections.length > 0) return <SectionsCabinet spec={spec} open={open} />
+function Worktop({ spec }: { spec: CabinetSpec }) {
+  if (spec.kind === 'wall' || spec.worktop === false) return null
+  const toe = spec.toeKick ?? 0
+  const topY = toe + spec.height
+  const thk = spec.worktopThickness ?? 0.04
+  const overhang = 0.03 // front overhang only, so a run of cabinets reads continuous
+  return (
+    <mesh position={[0, topY + thk / 2, overhang / 2]} castShadow receiveShadow>
+      <boxGeometry args={[spec.width, thk, spec.depth + overhang]} />
+      <meshStandardMaterial color={spec.worktopColor ?? '#d9d6cf'} roughness={0.4} metalness={0.05} />
+    </mesh>
+  )
+}
 
-  // ----- legacy renderer (specs without sections) -----
+export default function CabinetModel({ spec, open = false }: { spec: CabinetSpec; open?: boolean }) {
+  return (
+    <group>
+      {spec.sections && spec.sections.length > 0 ? (
+        <SectionsCabinet spec={spec} open={open} />
+      ) : (
+        <LegacyCabinet spec={spec} open={open} />
+      )}
+      <Worktop spec={spec} />
+    </group>
+  )
+}
+
+function LegacyCabinet({ spec, open }: { spec: CabinetSpec; open: boolean }) {
   const { width: W, height: H, depth: D, panelThickness: t, color } = spec
   const back = shade(color, -0.12)
   const shelfYs: number[] = []

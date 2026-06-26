@@ -7,7 +7,7 @@ import { productById } from '../data/catalog'
 import { detectRooms } from '../lib/rooms'
 import { DEFAULT_FLOORING, flooringByKey, floorings } from '../data/flooring'
 import type { FloorKind } from '../data/flooring'
-import { defaultCabinet } from '../data/cabinet'
+import { defaultCabinet, defaultWallCabinet } from '../data/cabinet'
 import { snapToWall } from '../lib/geometry'
 import CabinetModel from './CabinetModel'
 import type { CabinetSpec, PlacedItem, Vec2, Wall } from '../types'
@@ -73,11 +73,12 @@ function transcribeStroke(
   const maxY = Math.max(...ys)
   if (maxX - minX < 8 || maxY - minY < 8) return null
 
-  const depth = 0.6
   let candidate: Vec2
   let width: number
   let height: number
   let onWall = false
+  let wallMounted = false
+  let mountHeight = 0
 
   // 1) does the stroke land on a wall? -> place flush against it (depth inferred)
   const cndc = new THREE.Vector2(((minX + maxX) / 2 / rect.width) * 2 - 1, -((minY + maxY) / 2 / rect.height) * 2 + 1)
@@ -97,6 +98,13 @@ function transcribeStroke(
     const pR = screenToPlane(maxX, (minY + maxY) / 2, rect, camera, plane)
     width = pL && pR ? clamp(Math.hypot(pL.x - pR.x, pL.z - pR.z), 0.2, 4) : 0.6
     height = clamp((maxY - minY) / pxPerMeterAt(p, rect, camera), 0.2, 3)
+    // if the box sits high on the wall, make it a wall (upper) cabinet
+    const bottom = screenToPlane((minX + maxX) / 2, maxY, rect, camera, plane)
+    const by = bottom ? bottom.y : 0
+    if (by > 0.6) {
+      wallMounted = true
+      mountHeight = clamp(by, 0, 2.4)
+    }
   } else {
     const base = screenToFloor((minX + maxX) / 2, maxY, rect, camera)
     const left = screenToFloor(minX, maxY, rect, camera)
@@ -106,6 +114,8 @@ function transcribeStroke(
     width = clamp(Math.hypot(left.x - right.x, left.z - right.z), 0.2, 4)
     height = clamp((maxY - minY) / pxPerMeterAt(base, rect, camera), 0.2, 3)
   }
+
+  const depth = wallMounted ? 0.35 : 0.6
 
   // 2) snap to the nearest wall (definitely when drawn on a wall)
   const snap = snapToWall(candidate, depth, walls, onWall ? 3 : 0.7)
@@ -124,7 +134,11 @@ function transcribeStroke(
     rotation = Math.atan2(fwd.x, -fwd.z)
   }
 
-  return { spec: { ...defaultCabinet('Cabinet'), width, height, depth }, position, rotation }
+  const spec = wallMounted
+    ? { ...defaultWallCabinet('Wall Cabinet'), width, height, depth, mountHeight }
+    : { ...defaultCabinet('Cabinet'), width, height, depth }
+
+  return { spec, position, rotation }
 }
 
 /** Keeps a live reference to the R3F camera + scene for the screen-space overlay. */
@@ -523,8 +537,9 @@ export default function View3D() {
         {items.map((it) => {
           if (it.light) return <LightFixture key={it.id} item={it} />
           if (it.cabinet) {
+            const baseY = it.cabinet.kind === 'wall' ? it.cabinet.mountHeight ?? 1.5 : 0
             return (
-              <group key={it.id} position={[it.position.x, 0, it.position.y]} rotation={[0, -it.rotation, 0]}>
+              <group key={it.id} position={[it.position.x, baseY, it.position.y]} rotation={[0, -it.rotation, 0]}>
                 <CabinetModel spec={it.cabinet} />
               </group>
             )

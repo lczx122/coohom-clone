@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
-import { Canvas } from '@react-three/fiber'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, Grid } from '@react-three/drei'
+import * as THREE from 'three'
 import { useDesignStore } from '../store/useDesignStore'
 import CabinetModel from './CabinetModel'
 import type { CabinetSection, CabinetSpec, SectionFront } from '../types'
@@ -25,6 +26,102 @@ const FRONTS: { value: SectionFront; label: string }[] = [
   { value: 'none', label: 'Open' },
 ]
 
+const clampN = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+
+/** A draggable resize handle sphere in the 3D preview. */
+function Handle({ position, color, onDown }: { position: [number, number, number]; color: string; onDown: () => void }) {
+  return (
+    <mesh
+      position={position}
+      onPointerDown={(e) => {
+        e.stopPropagation()
+        onDown()
+      }}
+      onPointerOver={() => (document.body.style.cursor = 'grab')}
+      onPointerOut={() => (document.body.style.cursor = 'default')}
+    >
+      <sphereGeometry args={[0.035, 16, 16]} />
+      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.45} />
+    </mesh>
+  )
+}
+
+/** Width/height/depth drag handles; updates the draft via onResize. */
+function DimensionHandles({
+  spec,
+  onResize,
+}: {
+  spec: CabinetSpec
+  onResize: (dim: 'width' | 'height' | 'depth', value: number) => void
+}) {
+  const three = useThree() as unknown as {
+    camera: THREE.Camera
+    gl: { domElement: HTMLCanvasElement }
+    controls: { enabled: boolean } | null
+  }
+  const { camera, gl, controls } = three
+  const ray = useRef(new THREE.Raycaster())
+  const drag = useRef<'x' | 'y' | 'z' | null>(null)
+
+  const W = spec.width
+  const H = spec.height
+  const D = spec.depth
+  const toe = spec.toeKick ?? 0
+  const midY = toe + H / 2
+  const topY = toe + H
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const axis = drag.current
+      if (!axis) return
+      const rect = gl.domElement.getBoundingClientRect()
+      const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1)
+      ray.current.setFromCamera(ndc, camera)
+      const pt = new THREE.Vector3()
+      if (axis === 'x' || axis === 'z') {
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -midY)
+        if (ray.current.ray.intersectPlane(plane, pt)) {
+          if (axis === 'x') onResize('width', clampN(Math.abs(pt.x) * 2, 0.1, 4))
+          else onResize('depth', clampN(Math.abs(pt.z) * 2, 0.1, 1.2))
+        }
+      } else {
+        const fwd = new THREE.Vector3()
+        camera.getWorldDirection(fwd)
+        fwd.y = 0
+        if (fwd.lengthSq() < 1e-6) return
+        fwd.normalize()
+        const plane = new THREE.Plane(fwd, 0)
+        if (ray.current.ray.intersectPlane(plane, pt)) onResize('height', clampN(pt.y - toe, 0.1, 3))
+      }
+    }
+    const onUp = () => {
+      if (drag.current) {
+        drag.current = null
+        if (controls) controls.enabled = true
+      }
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [camera, gl, controls, midY, toe, onResize])
+
+  const start = (axis: 'x' | 'y' | 'z') => () => {
+    drag.current = axis
+    if (controls) controls.enabled = false
+  }
+
+  return (
+    <>
+      <Handle position={[W / 2, midY, D / 2]} color="#ff6b6b" onDown={start('x')} />
+      <Handle position={[0, midY, D / 2]} color="#6b9bff" onDown={start('z')} />
+      <Handle position={[0, topY, D / 2]} color="#6bff8f" onDown={start('y')} />
+    </>
+  )
+}
+
 export default function CabinetEditor() {
   const editingItemId = useDesignStore((s) => s.editingItemId)
   const items = useDesignStore((s) => s.items)
@@ -40,8 +137,18 @@ export default function CabinetEditor() {
 
   useEffect(() => {
     if (item?.cabinet) {
-      const sections = ensureSections(item.cabinet).map((s) => ({ ...s, accessories: s.accessories.map((a) => ({ ...a })) }))
-      setDraft({ ...item.cabinet, toeKick: item.cabinet.toeKick ?? 0.1, sections })
+      const c = item.cabinet
+      const sections = ensureSections(c).map((s) => ({ ...s, accessories: s.accessories.map((a) => ({ ...a })) }))
+      setDraft({
+        ...c,
+        kind: c.kind ?? 'base',
+        toeKick: c.toeKick ?? (c.kind === 'wall' ? 0 : 0.1),
+        worktop: c.worktop ?? (c.kind === 'wall' ? false : true),
+        worktopThickness: c.worktopThickness ?? 0.04,
+        worktopColor: c.worktopColor ?? '#d9d6cf',
+        mountHeight: c.mountHeight ?? 1.5,
+        sections,
+      })
     }
   }, [item?.id])
 
@@ -53,11 +160,17 @@ export default function CabinetEditor() {
     return () => window.removeEventListener('keydown', onKey)
   }, [close])
 
+  const resize = useCallback(
+    (dim: 'width' | 'height' | 'depth', value: number) => setDraft((d) => (d ? { ...d, [dim]: value } : d)),
+    [],
+  )
+
   if (!editingItemId || !item || !draft) return null
 
   const step = unitStep(unit)
   const sections = draft.sections ?? []
   const set = (patch: Partial<CabinetSpec>) => setDraft((d) => (d ? { ...d, ...patch } : d))
+  const isWall = draft.kind === 'wall'
 
   const updateSection = (id: string, patch: Partial<CabinetSection>) =>
     set({ sections: sections.map((s) => (s.id === id ? { ...s, ...patch } : s)) })
@@ -73,7 +186,10 @@ export default function CabinetEditor() {
   const carcassPrice = Math.round((draft.width * draft.height + draft.width * draft.depth) * 220)
   const total = carcassPrice + sectionsPrice
 
-  const dimField = (label: string, key: 'width' | 'height' | 'depth' | 'panelThickness' | 'toeKick') => (
+  const dimField = (
+    label: string,
+    key: 'width' | 'height' | 'depth' | 'panelThickness' | 'toeKick' | 'mountHeight' | 'worktopThickness',
+  ) => (
     <div className="field">
       <label>
         {label} ({unit})
@@ -108,6 +224,7 @@ export default function CabinetEditor() {
               <directionalLight position={[-2, 2, -1]} intensity={0.4} />
               <Grid args={[10, 10]} cellSize={0.1} cellColor="#2a313d" sectionSize={0.5} sectionColor="#3a4555" position={[0, 0, 0]} />
               <CabinetModel spec={draft} open={openDoors} />
+              <DimensionHandles spec={draft} onResize={resize} />
               <OrbitControls target={[0, draft.height / 2, 0]} makeDefault />
             </Canvas>
             <label className="preview-toggle">
@@ -124,6 +241,9 @@ export default function CabinetEditor() {
             </div>
 
             <div className="section-title">Carcass dimensions</div>
+            <p className="empty-note" style={{ marginTop: 0 }}>
+              Tip: drag the coloured handles in the preview to resize width / depth / height.
+            </p>
             <div className="row2">
               {dimField('Width', 'width')}
               {dimField('Height', 'height')}
@@ -132,7 +252,46 @@ export default function CabinetEditor() {
               {dimField('Depth', 'depth')}
               {dimField('Board', 'panelThickness')}
             </div>
-            <div className="row2">{dimField('Toe kick', 'toeKick')}<div className="field" /></div>
+            <div className="row2">
+              <div className="field">
+                <label>Type</label>
+                <select
+                  value={draft.kind ?? 'base'}
+                  onChange={(e) => {
+                    const kind = e.target.value as 'base' | 'wall'
+                    if (kind === 'wall') {
+                      set({ kind: 'wall', toeKick: 0, worktop: false, mountHeight: draft.mountHeight ?? 1.5, depth: Math.min(draft.depth, 0.4) })
+                    } else {
+                      set({ kind: 'base', toeKick: draft.toeKick || 0.1, worktop: draft.worktop ?? true })
+                    }
+                  }}
+                >
+                  <option value="base">Base (on floor)</option>
+                  <option value="wall">Wall (mounted)</option>
+                </select>
+              </div>
+              {isWall ? dimField('Mount height', 'mountHeight') : dimField('Toe kick', 'toeKick')}
+            </div>
+
+            {!isWall && (
+              <>
+                <label className="toggle" style={{ margin: '4px 0 8px' }}>
+                  <input type="checkbox" checked={draft.worktop !== false} onChange={(e) => set({ worktop: e.target.checked })} />
+                  Worktop
+                </label>
+                {draft.worktop !== false && (
+                  <div className="row2">
+                    {dimField('Worktop thickness', 'worktopThickness')}
+                    <div className="field">
+                      <label>Worktop color</label>
+                      <div className="color-field">
+                        <input type="color" value={draft.worktopColor ?? '#d9d6cf'} onChange={(e) => set({ worktopColor: e.target.value })} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
 
             <div className="section-title">Material</div>
             <div className="field">

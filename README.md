@@ -61,6 +61,11 @@ npm run typecheck  # types only
   per-section shelves and **accessories** (pull-out trash, dish basket, cutlery
   tray, wine rack, baskets, spice pull-out). A running price estimate updates as
   you build.
+- **Base vs wall cabinets**: choose the type — base cabinets stand on the floor
+  (with a toe-kick and an auto **worktop** that butts into a continuous run);
+  wall cabinets mount at an adjustable height.
+- **Drag-to-resize**: grab the coloured handles in the 3D preview to change
+  width / depth / height directly (or type exact values).
 - **Save as Model** stores the cabinet under *My Cabinets* so you can drop more
   copies onto any plan. Models persist across projects.
 - Configuration lives in `src/data/cabinet.ts` (materials, hinges, accessories);

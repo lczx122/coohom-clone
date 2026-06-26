@@ -14,7 +14,7 @@ import {
 import { detectRooms, pointInPolygon } from '../lib/rooms'
 import { generateRun } from '../lib/sketch'
 import { formatArea, formatLength, lengthValue, toMeters } from '../lib/units'
-import { defaultCabinet } from '../data/cabinet'
+import { defaultCabinet, defaultWallCabinet } from '../data/cabinet'
 import { flooringByKey, DEFAULT_FLOORING } from '../data/flooring'
 import type { PlacedItem, Vec2, Wall } from '../types'
 
@@ -251,8 +251,8 @@ export default function FloorPlanCanvas() {
           const id = store.addLightItem(pos)
           store.setSelection({ kind: 'item', id })
         } else if (placingModelId) {
-          if (placingModelId === '__new__') {
-            const spec = defaultCabinet()
+          if (placingModelId === '__new__' || placingModelId === '__new_wall__') {
+            const spec = placingModelId === '__new_wall__' ? defaultWallCabinet() : defaultCabinet()
             const snapped = snapCabinetToWall(spec.depth, pos, walls)
             const id = store.addCabinetItem(spec, snapped?.position ?? pos)
             if (snapped) store.updateItem(id, { rotation: snapped.rotation })
@@ -757,8 +757,8 @@ export default function FloorPlanCanvas() {
     // place-tool ghost
     if (tool === 'place' && (placingProductId || placingModelId)) {
       let ghost: { width: number; depth: number; color: string } | null = null
-      if (placingModelId === '__new__') {
-        const c0 = defaultCabinet()
+      if (placingModelId === '__new__' || placingModelId === '__new_wall__') {
+        const c0 = placingModelId === '__new_wall__' ? defaultWallCabinet() : defaultCabinet()
         ghost = { width: c0.width, depth: c0.depth, color: c0.color }
       } else if (placingModelId) {
         const m = store.models.find((x) => x.id === placingModelId)

@@ -21,7 +21,14 @@ export default function Catalog() {
         className={`new-cabinet-btn ${placingModelId === '__new__' ? 'active' : ''}`}
         onClick={() => setPlacingModel(placingModelId === '__new__' ? null : '__new__')}
       >
-        ＋ New cabinet
+        ＋ New base cabinet
+      </button>
+      <button
+        className={`new-cabinet-btn ${placingModelId === '__new_wall__' ? 'active' : ''}`}
+        style={{ marginTop: 6 }}
+        onClick={() => setPlacingModel(placingModelId === '__new_wall__' ? null : '__new_wall__')}
+      >
+        ＋ New wall cabinet
       </button>
       <div className="empty-note" style={{ margin: '6px 0 8px' }}>
         Click to start, place it on the plan, then double-click to open the
