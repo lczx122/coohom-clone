@@ -94,6 +94,8 @@ export interface CabinetSection {
   /** interior shelves when not a drawer bank */
   shelves: number
   accessories: CabinetAccessory[]
+  /** handle style for this section's doors/drawers */
+  handle?: 'bar' | 'knob'
 }
 
 export interface CabinetSpec {

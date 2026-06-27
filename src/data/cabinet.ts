@@ -59,7 +59,7 @@ export const accessoryType = (key: string): AccessoryType | undefined =>
   accessoryTypes.find((a) => a.key === key)
 
 export function newSection(width = 1, front: SectionFront = 'door-double'): CabinetSection {
-  return { id: uid('sec'), width, front, drawers: 3, shelves: 1, accessories: [] }
+  return { id: uid('sec'), width, front, drawers: 3, shelves: 1, accessories: [], handle: 'bar' }
 }
 
 /** A sensible default base cabinet. */

@@ -154,15 +154,32 @@ function interpretSketch(
 
   // classify the detail strokes
   const dividers: number[] = []
-  const lines: number[] = [] // u-position of horizontal lines
+  const outH = outline.maxY - outline.minY || 1
+  type HLine = { u: number; w: number }
+  const hlines: HLine[] = []
+  const knobs: number[] = []
+  const crosses: number[] = []
   for (let i = 1; i < strokes.length; i++) {
-    if (strokes[i].length < 2) continue
-    const b = bboxOf(strokes[i])
+    const st = strokes[i]
+    if (st.length < 2) continue
+    const b = bboxOf(st)
     const w = b.maxX - b.minX
     const h = b.maxY - b.minY
     const u = clamp(((b.minX + b.maxX) / 2 - outline.minX) / outW, 0.04, 0.96)
-    if (h > w * 1.4) dividers.push(u)
-    else if (w > h * 1.4) lines.push(u)
+    const small = w < 0.22 * outW && h < 0.22 * outH
+    const squarish = w > 0 && h > 0 && w / h > 0.5 && w / h < 2
+    const first = st[0]
+    const last = st[st.length - 1]
+    const closed = Math.hypot(first.x - last.x, first.y - last.y) < 0.4 * Math.max(w, h)
+    if (small && squarish && closed) {
+      knobs.push(u) // circle → knob handle
+    } else if (h > w * 1.5) {
+      dividers.push(u) // vertical → divider
+    } else if (w > h * 1.5) {
+      hlines.push({ u, w }) // horizontal → shelf / drawer
+    } else if (w > 0.25 * outW && h > 0.25 * outH) {
+      crosses.push(u) // big diagonal / X → open shelving
+    }
   }
   dividers.sort((a, b) => a - b)
 
@@ -172,15 +189,30 @@ function interpretSketch(
     const u0 = bounds[i]
     const u1 = bounds[i + 1]
     const wr = Math.max(0.05, u1 - u0)
-    const lineCount = lines.filter((u) => u >= u0 && u < u1).length
-    if (lineCount > 0) {
-      const s = newSection(wr, 'drawers')
-      s.drawers = Math.min(8, lineCount + 1)
-      sections.push(s)
+    const secScreenW = wr * outW
+    const absW = wr * carc.width
+    const inSec = (uu: number) => uu >= u0 && uu < u1
+    const hl = hlines.filter((d) => inSec(d.u))
+    const wide = hl.filter((d) => d.w >= 0.5 * secScreenW)
+    const shortLines = hl.filter((d) => d.w < 0.5 * secScreenW)
+    const hasKnob = knobs.some(inSec)
+    const isOpen = crosses.some(inSec)
+
+    let s: CabinetSection
+    if (wide.length > 0) {
+      s = newSection(wr, 'drawers')
+      s.drawers = Math.min(8, wide.length + 1) // full-width lines → drawer fronts
+    } else if (isOpen) {
+      s = newSection(wr, 'none') // diagonal / X → open shelving
+      s.shelves = shortLines.length
+    } else if (shortLines.length > 0) {
+      s = newSection(wr, absW > 0.55 ? 'door-double' : 'door-left')
+      s.shelves = shortLines.length // short lines → shelves behind a door
     } else {
-      const absW = wr * carc.width
-      sections.push(newSection(wr, absW > 0.55 ? 'door-double' : 'door-left'))
+      s = newSection(wr, absW > 0.55 ? 'door-double' : 'door-left')
     }
+    s.handle = hasKnob ? 'knob' : 'bar'
+    sections.push(s)
   }
 
   const base = carc.wallMounted ? defaultWallCabinet('Cabinet') : defaultCabinet('Cabinet')
@@ -418,6 +450,7 @@ export default function View3D() {
   // 3D sketch-to-cabinet
   const [sketch3d, setSketch3d] = useState(false)
   const [preview, setPreview] = useState<SketchPreview | null>(null)
+  const [strokeCount, setStrokeCount] = useState(0)
   const tapRef = useRef<{ camera: THREE.Camera; scene: THREE.Scene } | null>(null)
   const overlayRef = useRef<HTMLCanvasElement | null>(null)
   const strokesRef = useRef<{ x: number; y: number }[][]>([]) // accumulated strokes
@@ -479,6 +512,7 @@ export default function View3D() {
     const { x, y } = relPoint(e)
     strokesRef.current.push([{ x, y }]) // begin a new stroke
     drawingRef.current = true
+    setStrokeCount(strokesRef.current.length)
   }
 
   const onSketchMove = (e: React.PointerEvent) => {
@@ -510,14 +544,24 @@ export default function View3D() {
     const id = addCabinetItem(preview.spec, preview.position)
     updateItem(id, { rotation: preview.rotation })
     strokesRef.current = []
+    setStrokeCount(0)
     setPreview(null)
     redrawOverlay()
   }
 
   const clearSketch = () => {
     strokesRef.current = []
+    setStrokeCount(0)
     setPreview(null)
     redrawOverlay()
+  }
+
+  const undoStroke = () => {
+    strokesRef.current.pop()
+    setStrokeCount(strokesRef.current.length)
+    redrawOverlay()
+    const cv = overlayRef.current
+    if (cv) refreshPreview(cv.getBoundingClientRect())
   }
 
   const center = useMemo(() => {
@@ -648,7 +692,10 @@ export default function View3D() {
           <button className="icon-btn primary" onClick={commitSketch} disabled={!preview}>
             Done — place cabinet
           </button>
-          <button className="icon-btn" onClick={clearSketch} disabled={!preview}>
+          <button className="icon-btn" onClick={undoStroke} disabled={strokeCount === 0}>
+            Undo stroke
+          </button>
+          <button className="icon-btn" onClick={clearSketch} disabled={strokeCount === 0}>
             Clear
           </button>
         </div>
@@ -674,10 +721,10 @@ export default function View3D() {
       <div className="canvas-hint">
         {sketch3d ? (
           <>
-            <b>Draw a cabinet:</b> the view is frozen. Draw the <b>outline</b> first, then add
-            <b> vertical lines</b> for dividers and <b>horizontal lines</b> for drawers — the
-            cabinet updates as you draw. Tap <b>Done</b> to place it (it snaps to the wall).
-            Toggle <b>✎ Sketch</b> off to move the camera.
+            <b>Draw a cabinet</b> (view frozen). <b>Outline</b> first, then: <b>vertical line</b> =
+            divider · <b>full-width line</b> = drawer · <b>short line</b> = shelf · <b>X / diagonal</b> =
+            open shelving · <b>circle</b> = knob handle. <b>Undo stroke</b> removes the last; <b>Done</b>
+            places it.
           </>
         ) : (
           <>

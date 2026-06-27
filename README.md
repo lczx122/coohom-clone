@@ -100,11 +100,12 @@ npm run typecheck  # types only
 - **Move the camera freely**: **WASD** to move, **Q/E** for up/down, **Shift**
   to move faster, mouse-drag to look, scroll to zoom.
 - **Sketch a cabinet in 3D**: toggle **✎ Sketch** to freeze the camera, then
-  *draw the cabinet*. The first stroke is the **outline** (carcass); add
-  **vertical lines** for dividers (splitting it into sections) and **horizontal
-  lines** for drawers — the cabinet updates live to match what you drew. Drawing
-  on a **wall** mounts it there (high strokes become wall cabinets); otherwise it
-  snaps to the nearest wall. Place it with **Done**.
+  *draw the cabinet*. The first stroke is the **outline** (carcass); then the
+  app reads your marks: **vertical line** = divider, **full-width line** = drawer,
+  **short line** = shelf, **X / diagonal** = open shelving, **circle** = knob
+  handle. It updates live; **Undo stroke** removes the last mark and **Done**
+  places it. Drawing on a **wall** mounts it there (high strokes become wall
+  cabinets); otherwise it snaps to the nearest wall.
 - Enclosed rooms get flooring (per-room choice), point-lights illuminate the
   scene, and you can switch between a **Studio** backdrop and an **Outdoor**
   environment with a procedural sky.
