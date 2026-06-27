@@ -31,12 +31,13 @@ export default function PropertiesPanel() {
         </p>
         <div className="section-title">Tips</div>
         <p className="empty-note">
-          • <b>Wall</b> tool: left-click to chain segments; right-click to finish
-          and return to the cursor.
-          <br />• Lines snap to right angles — hold <b>Shift</b> for a free angle.
-          <br />• Select a wall to edit its length right on the plan.
-          <br />• Enclose an area with walls to create a <b>room</b> you can name.
-          <br />• <b>R</b> rotates a selected product; <b>Delete</b> removes it.
+          • <b>Wall</b> tool: tap to add points; tap <b>Finish wall</b> (or
+          double-tap) to end.
+          <br />• Toggle <b>Ortho</b> for right angles; <b>pinch</b> to zoom and
+          drag two fingers to pan.
+          <br />• Tap a wall to edit its length right on the plan.
+          <br />• Enclose an area with walls to create a <b>room</b>.
+          <br />• Select an item to rotate, resize, or delete it here.
         </p>
       </div>
     )

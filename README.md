@@ -22,6 +22,15 @@ npm run typecheck  # types only
 
 ## What you can do
 
+**Touch & stylus (tablet-first)**
+- The 2D plan supports **pinch-to-zoom** and **two-finger pan**; one finger or a
+  stylus uses the active tool. The page itself never zooms/scrolls.
+- No keyboard needed: the **Ortho** toggle drives right-angle snapping (Shift
+  just inverts it on desktop), drawing a wall ends with the on-screen **Finish
+  wall** button (or a double-tap), and every action has a touch target sized for
+  fingers. The 3D view orbits/zooms with standard touch gestures, and cabinet
+  resize handles are finger-sized.
+
 **2D editor (the core)**
 - Draw chained walls — **left-click** to add points, **right-click** to finish and
   switch back to the cursor. Walls snap to the grid and to existing corners.

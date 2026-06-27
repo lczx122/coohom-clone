@@ -80,6 +80,11 @@ export default function FloorPlanCanvas() {
   const [sketchWidth, setSketchWidth] = useState(0.6)
   const sketchDepth = 0.6
 
+  // multi-touch gesture state (pinch-zoom + two-finger pan)
+  const activePointers = useRef<Map<number, Vec2>>(new Map())
+  const gestureRef = useRef<{ d0: number; worldMid: Vec2; cam0: { zoom: number; panX: number; panY: number } } | null>(null)
+  const suppressRef = useRef(false)
+
   const store = useDesignStore()
   const {
     walls, openings, items, camera, tool, selection, placingProductId, placingModelId, placingLight,
@@ -123,8 +128,8 @@ export default function FloorPlanCanvas() {
         if (ep) return ep
       }
       let p = raw
-      // right-angle (ortho) snap applies only while Shift is held
-      if (orthoEnabled && shiftHeld) {
+      // ortho toggle drives right-angle snapping (touch-friendly); Shift inverts
+      if (orthoEnabled !== shiftHeld) {
         const dx = raw.x - anchor.x
         const dy = raw.y - anchor.y
         p = Math.abs(dx) >= Math.abs(dy) ? { x: raw.x, y: anchor.y } : { x: anchor.x, y: raw.y }
@@ -210,7 +215,25 @@ export default function FloorPlanCanvas() {
         return
       }
 
-      canvasRef.current?.setPointerCapture(e.pointerId)
+      // track touch points; a second finger starts a pinch/pan gesture
+      const sc = getMouse(e)
+      activePointers.current.set(e.pointerId, sc)
+      if (activePointers.current.size >= 2) {
+        setInteraction({ type: 'idle' })
+        const pts = Array.from(activePointers.current.values())
+        const mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 }
+        const d0 = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1
+        gestureRef.current = { d0, worldMid: screenToWorld(mid), cam0: { ...camera } }
+        suppressRef.current = true
+        return
+      }
+      if (suppressRef.current) return
+
+      try {
+        canvasRef.current?.setPointerCapture(e.pointerId)
+      } catch {
+        /* pointer not capturable (e.g. synthetic) */
+      }
       const screen = getMouse(e)
       const world = screenToWorld(screen)
       const middle = e.button === 1
@@ -341,6 +364,23 @@ export default function FloorPlanCanvas() {
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
+      // update tracked touch point + handle pinch/two-finger pan
+      if (activePointers.current.has(e.pointerId)) activePointers.current.set(e.pointerId, getMouse(e))
+      if (gestureRef.current && activePointers.current.size >= 2) {
+        const pts = Array.from(activePointers.current.values())
+        const mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 }
+        const d1 = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1
+        const g = gestureRef.current
+        const newZoom = Math.min(8, Math.max(0.15, g.cam0.zoom * (d1 / g.d0)))
+        store.setCamera({
+          zoom: newZoom,
+          panX: mid.x - g.worldMid.x * BASE_PPM * newZoom,
+          panY: mid.y - g.worldMid.y * BASE_PPM * newZoom,
+        })
+        return
+      }
+      if (suppressRef.current) return
+
       const screen = getMouse(e)
       const world = screenToWorld(screen)
       setMouseWorld(world)
@@ -380,7 +420,16 @@ export default function FloorPlanCanvas() {
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
-      canvasRef.current?.releasePointerCapture(e.pointerId)
+      const wasGesture = suppressRef.current || gestureRef.current !== null
+      activePointers.current.delete(e.pointerId)
+      if (activePointers.current.size < 2) gestureRef.current = null
+      if (activePointers.current.size === 0) suppressRef.current = false
+      try {
+        canvasRef.current?.releasePointerCapture(e.pointerId)
+      } catch {
+        /* not captured */
+      }
+      if (wasGesture) return
       switch (interaction.type) {
         case 'drag-item': {
           const dragged = items.find((x) => x.id === interaction.id)
@@ -440,6 +489,12 @@ export default function FloorPlanCanvas() {
     },
     [interaction, walls, items, computeRun, sketchDepth, store],
   )
+
+  const onPointerCancel = useCallback((e: React.PointerEvent) => {
+    activePointers.current.delete(e.pointerId)
+    if (activePointers.current.size < 2) gestureRef.current = null
+    if (activePointers.current.size === 0) suppressRef.current = false
+  }, [])
 
   const onDoubleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -818,10 +873,25 @@ export default function FloorPlanCanvas() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
         onDoubleClick={onDoubleClick}
         onWheel={onWheel}
         onContextMenu={(e) => e.preventDefault()}
       />
+
+      {interaction.type === 'drawing' && (
+        <div className="draw-actions">
+          <button
+            className="icon-btn primary"
+            onClick={() => {
+              setInteraction({ type: 'idle' })
+              store.setTool('select')
+            }}
+          >
+            ✓ Finish wall
+          </button>
+        </div>
+      )}
 
       {lenBox && (
         <div className="len-editor" style={{ left: lenBox.x, top: lenBox.y }}>
@@ -866,8 +936,9 @@ export default function FloorPlanCanvas() {
           </>
         ) : (
           <>
-            <b>Wall tool:</b> left-click to add points · right-click to finish &amp; switch to
-            cursor · hold <b>Shift</b> to snap to right angles · double-click a cabinet to edit
+            <b>Wall:</b> tap to add points · tap <b>Finish wall</b> (or double-tap) to end ·
+            toggle <b>Ortho</b> for right angles · pinch to zoom, two fingers to pan · double-tap a
+            cabinet to edit
           </>
         )}
       </div>

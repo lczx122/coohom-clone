@@ -14,6 +14,7 @@
 
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html,
@@ -25,6 +26,41 @@ body,
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* allow text selection / editing inside form fields */
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* avoid the 300ms tap delay / double-tap zoom on interactive chrome */
+button,
+.tool-btn,
+.icon-btn,
+select,
+input[type='checkbox'],
+input[type='range'],
+label.toggle {
+  touch-action: manipulation;
+}
+
+/* scrollable panels: keep momentum scrolling contained, no page bounce */
+.sidebar,
+.props,
+.cabinet-controls {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* larger checkboxes for touch */
+.toggle input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
 }
 
 button {
@@ -66,8 +102,8 @@ button {
   top: 50%;
   transform: translateY(-50%);
   z-index: 25;
-  width: 16px;
-  height: 56px;
+  width: 24px;
+  height: 72px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -137,9 +173,11 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 2px;
-  min-width: 52px;
-  padding: 5px 8px;
+  min-width: 54px;
+  min-height: 40px;
+  padding: 6px 8px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
@@ -160,13 +198,14 @@ button {
   border-color: var(--brand);
 }
 .icon-btn {
-  padding: 6px 10px;
+  padding: 8px 12px;
+  min-height: 38px;
   border-radius: 6px;
   background: var(--panel-2);
   border: 1px solid var(--border);
   color: var(--text);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
 }
 .icon-btn:hover {
   background: #232a35;
@@ -195,6 +234,19 @@ button {
   border: 1px solid var(--border);
   color: var(--text);
   font-size: 12px;
+}
+
+/* ---------- Active-drawing actions (touch finish) ---------- */
+.draw-actions {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 10;
+}
+.draw-actions .icon-btn {
+  font-size: 14px;
+  padding: 10px 18px;
 }
 
 /* ---------- Sketch options bar ---------- */
@@ -581,12 +633,17 @@ button {
 .field input,
 .field select {
   width: 100%;
-  padding: 6px 8px;
+  padding: 8px 9px;
+  min-height: 38px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--panel-2);
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
+}
+/* bigger range sliders for touch/stylus */
+input[type='range'] {
+  height: 26px;
 }
 .row2 {
   display: grid;

@@ -40,7 +40,7 @@ function Handle({ position, color, onDown }: { position: [number, number, number
       onPointerOver={() => (document.body.style.cursor = 'grab')}
       onPointerOut={() => (document.body.style.cursor = 'default')}
     >
-      <sphereGeometry args={[0.035, 16, 16]} />
+      <sphereGeometry args={[0.05, 16, 16]} />
       <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.45} />
     </mesh>
   )
