@@ -21,7 +21,8 @@ html,
 body,
 #root {
   margin: 0;
-  height: 100%;
+  height: 100vh;
+  height: 100dvh; /* fits the visible viewport on mobile Safari (excludes browser chrome) */
   width: 100%;
   background: var(--bg);
   color: var(--text);
@@ -70,13 +71,14 @@ button {
 .app {
   position: relative;
   display: grid;
-  grid-template-rows: 48px 1fr 26px;
+  grid-template-rows: 48px 1fr calc(26px + env(safe-area-inset-bottom));
   grid-template-columns: 240px 1fr 260px;
   grid-template-areas:
     'topbar topbar topbar'
     'sidebar canvas props'
     'status status status';
   height: 100vh;
+  height: 100dvh;
   width: 100vw;
 }
 
@@ -240,7 +242,7 @@ button {
 .thumb-dock {
   position: absolute;
   left: 50%;
-  bottom: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   z-index: 22;
   display: flex;
@@ -310,7 +312,7 @@ button {
 .draw-actions {
   position: absolute;
   left: 50%;
-  bottom: 80px;
+  bottom: calc(80px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   z-index: 23;
 }
@@ -323,7 +325,7 @@ button {
 .sketch-bar {
   position: absolute;
   left: 50%;
-  bottom: 80px;
+  bottom: calc(80px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   display: flex;
   align-items: center;
@@ -637,7 +639,7 @@ button {
 .sketch3d-controls {
   position: absolute;
   left: 50%;
-  bottom: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   z-index: 10;
   display: flex;
@@ -938,6 +940,7 @@ input[type='range'] {
   align-items: center;
   gap: 16px;
   padding: 0 14px;
+  padding-bottom: env(safe-area-inset-bottom);
   background: var(--panel);
   border-top: 1px solid var(--border);
   font-size: 11px;
