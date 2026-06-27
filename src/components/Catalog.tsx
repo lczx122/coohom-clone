@@ -13,26 +13,20 @@ export default function Catalog() {
   const deleteModel = useDesignStore((s) => s.deleteModel)
   const placingLight = useDesignStore((s) => s.placingLight)
   const setPlacingLight = useDesignStore((s) => s.setPlacingLight)
+  const addNewCabinet = useDesignStore((s) => s.addNewCabinet)
 
   return (
     <div className="sidebar">
       <div className="section-title">Custom Cabinets</div>
-      <button
-        className={`new-cabinet-btn ${placingModelId === '__new__' ? 'active' : ''}`}
-        onClick={() => setPlacingModel(placingModelId === '__new__' ? null : '__new__')}
-      >
+      <button className="new-cabinet-btn" onClick={() => addNewCabinet('base')}>
         ＋ New base cabinet
       </button>
-      <button
-        className={`new-cabinet-btn ${placingModelId === '__new_wall__' ? 'active' : ''}`}
-        style={{ marginTop: 6 }}
-        onClick={() => setPlacingModel(placingModelId === '__new_wall__' ? null : '__new_wall__')}
-      >
+      <button className="new-cabinet-btn" style={{ marginTop: 6 }} onClick={() => addNewCabinet('wall')}>
         ＋ New wall cabinet
       </button>
       <div className="empty-note" style={{ margin: '6px 0 8px' }}>
-        Click to start, place it on the plan, then double-click to open the
-        cabinet editor.
+        Adds a cabinet to your plan and opens the editor. Drag it into place, or
+        double-tap any cabinet to edit it.
       </div>
       {models.length === 0 && (
         <div className="empty-note">No saved cabinets yet. Build one and “Save as Model”.</div>

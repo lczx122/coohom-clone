@@ -7,10 +7,10 @@ import { productById } from '../data/catalog'
 import { detectRooms } from '../lib/rooms'
 import { DEFAULT_FLOORING, flooringByKey, floorings } from '../data/flooring'
 import type { FloorKind } from '../data/flooring'
-import { defaultCabinet, defaultWallCabinet } from '../data/cabinet'
+import { defaultCabinet, defaultWallCabinet, newSection } from '../data/cabinet'
 import { snapToWall } from '../lib/geometry'
 import CabinetModel from './CabinetModel'
-import type { CabinetSpec, PlacedItem, Vec2, Wall } from '../types'
+import type { CabinetSection, CabinetSpec, PlacedItem, Vec2, Wall } from '../types'
 
 const DEFAULT_WALL_COLOR = '#d6dae0'
 
@@ -57,22 +57,27 @@ function pxPerMeterAt(p: THREE.Vector3, rect: { width: number; height: number },
   return v < 2 ? 120 : v
 }
 
-function transcribeStroke(
-  stroke: { x: number; y: number }[],
-  rect: { width: number; height: number },
-  camera: THREE.Camera,
-  scene: THREE.Scene,
-  walls: Wall[],
-): SketchPreview | null {
-  if (stroke.length < 2) return null
+type Box = { minX: number; maxX: number; minY: number; maxY: number }
+const bboxOf = (stroke: { x: number; y: number }[]): Box => {
   const xs = stroke.map((p) => p.x)
   const ys = stroke.map((p) => p.y)
-  const minX = Math.min(...xs)
-  const maxX = Math.max(...xs)
-  const minY = Math.min(...ys)
-  const maxY = Math.max(...ys)
-  if (maxX - minX < 8 || maxY - minY < 8) return null
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }
+}
 
+interface Carcass {
+  position: Vec2
+  rotation: number
+  width: number
+  height: number
+  depth: number
+  wallMounted: boolean
+  mountHeight: number
+}
+
+/** Derive the carcass envelope + placement from the outline box on a wall/floor. */
+function carcassFromBox(b: Box, rect: { width: number; height: number }, camera: THREE.Camera, scene: THREE.Scene, walls: Wall[]): Carcass | null {
+  const { minX, maxX, minY, maxY } = b
+  if (maxX - minX < 8 || maxY - minY < 8) return null
   let candidate: Vec2
   let width: number
   let height: number
@@ -80,25 +85,20 @@ function transcribeStroke(
   let wallMounted = false
   let mountHeight = 0
 
-  // 1) does the stroke land on a wall? -> place flush against it (depth inferred)
   const cndc = new THREE.Vector2(((minX + maxX) / 2 / rect.width) * 2 - 1, -((minY + maxY) / 2 / rect.height) * 2 + 1)
   RAY.setFromCamera(cndc, camera)
-  const hits = RAY.intersectObjects(scene.children, true)
-  const wallHit = hits.find((h) => h.object.userData && h.object.userData.isWall)
+  const wallHit = RAY.intersectObjects(scene.children, true).find((h) => h.object.userData && h.object.userData.isWall)
 
   if (wallHit) {
     onWall = true
     const p = wallHit.point
     candidate = { x: p.x, y: p.z }
-    const normal = wallHit.face
-      ? wallHit.face.normal.clone().transformDirection(wallHit.object.matrixWorld)
-      : new THREE.Vector3(0, 0, 1)
+    const normal = wallHit.face ? wallHit.face.normal.clone().transformDirection(wallHit.object.matrixWorld) : new THREE.Vector3(0, 0, 1)
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, p)
     const pL = screenToPlane(minX, (minY + maxY) / 2, rect, camera, plane)
     const pR = screenToPlane(maxX, (minY + maxY) / 2, rect, camera, plane)
     width = pL && pR ? clamp(Math.hypot(pL.x - pR.x, pL.z - pR.z), 0.2, 4) : 0.6
     height = clamp((maxY - minY) / pxPerMeterAt(p, rect, camera), 0.2, 3)
-    // if the box sits high on the wall, make it a wall (upper) cabinet
     const bottom = screenToPlane((minX + maxX) / 2, maxY, rect, camera, plane)
     const by = bottom ? bottom.y : 0
     if (by > 0.6) {
@@ -116,8 +116,6 @@ function transcribeStroke(
   }
 
   const depth = wallMounted ? 0.35 : 0.6
-
-  // 2) snap to the nearest wall (definitely when drawn on a wall)
   const snap = snapToWall(candidate, depth, walls, onWall ? 3 : 0.7)
   let position: Vec2
   let rotation: number
@@ -133,12 +131,68 @@ function transcribeStroke(
     position = { x: candidate.x + (fwd.x * depth) / 2, y: candidate.y + (fwd.z * depth) / 2 }
     rotation = Math.atan2(fwd.x, -fwd.z)
   }
+  return { position, rotation, width, height, depth, wallMounted, mountHeight }
+}
 
-  const spec = wallMounted
-    ? { ...defaultWallCabinet('Wall Cabinet'), width, height, depth, mountHeight }
-    : { ...defaultCabinet('Cabinet'), width, height, depth }
+/**
+ * Interpret a set of strokes into a cabinet: the first stroke is the outline
+ * (carcass); later strokes are read as vertical dividers (split into sections)
+ * and horizontal lines (drawer divisions within a section).
+ */
+function interpretSketch(
+  strokes: { x: number; y: number }[][],
+  rect: { width: number; height: number },
+  camera: THREE.Camera,
+  scene: THREE.Scene,
+  walls: Wall[],
+): SketchPreview | null {
+  if (strokes.length === 0 || strokes[0].length < 2) return null
+  const outline = bboxOf(strokes[0])
+  const carc = carcassFromBox(outline, rect, camera, scene, walls)
+  if (!carc) return null
+  const outW = outline.maxX - outline.minX || 1
 
-  return { spec, position, rotation }
+  // classify the detail strokes
+  const dividers: number[] = []
+  const lines: number[] = [] // u-position of horizontal lines
+  for (let i = 1; i < strokes.length; i++) {
+    if (strokes[i].length < 2) continue
+    const b = bboxOf(strokes[i])
+    const w = b.maxX - b.minX
+    const h = b.maxY - b.minY
+    const u = clamp(((b.minX + b.maxX) / 2 - outline.minX) / outW, 0.04, 0.96)
+    if (h > w * 1.4) dividers.push(u)
+    else if (w > h * 1.4) lines.push(u)
+  }
+  dividers.sort((a, b) => a - b)
+
+  const bounds = [0, ...dividers, 1]
+  const sections: CabinetSection[] = []
+  for (let i = 0; i < bounds.length - 1; i++) {
+    const u0 = bounds[i]
+    const u1 = bounds[i + 1]
+    const wr = Math.max(0.05, u1 - u0)
+    const lineCount = lines.filter((u) => u >= u0 && u < u1).length
+    if (lineCount > 0) {
+      const s = newSection(wr, 'drawers')
+      s.drawers = Math.min(8, lineCount + 1)
+      sections.push(s)
+    } else {
+      const absW = wr * carc.width
+      sections.push(newSection(wr, absW > 0.55 ? 'door-double' : 'door-left'))
+    }
+  }
+
+  const base = carc.wallMounted ? defaultWallCabinet('Cabinet') : defaultCabinet('Cabinet')
+  const spec: CabinetSpec = {
+    ...base,
+    width: carc.width,
+    height: carc.height,
+    depth: carc.depth,
+    sections,
+    ...(carc.wallMounted ? { mountHeight: carc.mountHeight } : {}),
+  }
+  return { spec, position: carc.position, rotation: carc.rotation }
 }
 
 /** Keeps a live reference to the R3F camera + scene for the screen-space overlay. */
@@ -366,7 +420,7 @@ export default function View3D() {
   const [preview, setPreview] = useState<SketchPreview | null>(null)
   const tapRef = useRef<{ camera: THREE.Camera; scene: THREE.Scene } | null>(null)
   const overlayRef = useRef<HTMLCanvasElement | null>(null)
-  const strokeRef = useRef<{ x: number; y: number }[]>([])
+  const strokesRef = useRef<{ x: number; y: number }[][]>([]) // accumulated strokes
   const drawingRef = useRef(false)
   const penActiveRef = useRef(false)
 
@@ -374,7 +428,7 @@ export default function View3D() {
   useEffect(() => {
     if (!sketch3d) {
       setPreview(null)
-      strokeRef.current = []
+      strokesRef.current = []
       return
     }
     const cv = overlayRef.current
@@ -390,25 +444,27 @@ export default function View3D() {
     if (!cv) return
     const ctx = cv.getContext('2d')!
     ctx.clearRect(0, 0, cv.width, cv.height)
-    const pts = strokeRef.current
-    if (pts.length < 2) return
-    ctx.strokeStyle = '#2f6df6'
-    ctx.lineWidth = 2.5
-    ctx.lineJoin = 'round'
-    ctx.beginPath()
-    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)))
-    ctx.stroke()
-    const xs = pts.map((p) => p.x)
-    const ys = pts.map((p) => p.y)
-    ctx.strokeStyle = 'rgba(47,109,246,0.45)'
-    ctx.setLineDash([5, 4])
-    ctx.strokeRect(Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys))
-    ctx.setLineDash([])
+    strokesRef.current.forEach((pts, idx) => {
+      if (pts.length < 2) return
+      // first stroke = outline (solid), later strokes = detail (lighter)
+      ctx.strokeStyle = idx === 0 ? '#2f6df6' : '#7fb6ff'
+      ctx.lineWidth = idx === 0 ? 2.5 : 2
+      ctx.lineJoin = 'round'
+      ctx.lineCap = 'round'
+      ctx.beginPath()
+      pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)))
+      ctx.stroke()
+    })
   }
 
   const relPoint = (e: React.PointerEvent) => {
     const rect = overlayRef.current!.getBoundingClientRect()
     return { x: e.clientX - rect.left, y: e.clientY - rect.top, rect }
+  }
+
+  const refreshPreview = (rect: { width: number; height: number }) => {
+    const tap = tapRef.current
+    if (tap) setPreview(interpretSketch(strokesRef.current, rect, tap.camera, tap.scene, walls))
   }
 
   const onSketchDown = (e: React.PointerEvent) => {
@@ -421,23 +477,22 @@ export default function View3D() {
       /* not capturable */
     }
     const { x, y } = relPoint(e)
-    strokeRef.current = [{ x, y }]
+    strokesRef.current.push([{ x, y }]) // begin a new stroke
     drawingRef.current = true
   }
 
   const onSketchMove = (e: React.PointerEvent) => {
     if (!drawingRef.current) return
     const { x, y, rect } = relPoint(e)
-    const last = strokeRef.current[strokeRef.current.length - 1]
+    const cur = strokesRef.current[strokesRef.current.length - 1]
+    const last = cur[cur.length - 1]
     if (last && Math.hypot(x - last.x, y - last.y) < 2) return
-    strokeRef.current.push({ x, y })
+    cur.push({ x, y })
     redrawOverlay()
-    const tap = tapRef.current
-    if (tap) setPreview(transcribeStroke(strokeRef.current, rect, tap.camera, tap.scene, walls))
+    refreshPreview(rect)
   }
 
-  // a finished stroke just updates the (editable) preview — it is not committed
-  // until the user clicks Done.
+  // each finished stroke adds to the drawing; nothing is placed until Done.
   const onSketchUp = (e: React.PointerEvent) => {
     if (e.pointerType === 'pen') penActiveRef.current = false
     if (!drawingRef.current) return
@@ -447,22 +502,20 @@ export default function View3D() {
     } catch {
       /* pointer already released */
     }
-    const rect = overlayRef.current!.getBoundingClientRect()
-    const tap = tapRef.current
-    if (tap) setPreview(transcribeStroke(strokeRef.current, rect, tap.camera, tap.scene, walls))
+    refreshPreview(overlayRef.current!.getBoundingClientRect())
   }
 
   const commitSketch = () => {
     if (!preview) return
     const id = addCabinetItem(preview.spec, preview.position)
     updateItem(id, { rotation: preview.rotation })
-    strokeRef.current = []
+    strokesRef.current = []
     setPreview(null)
     redrawOverlay()
   }
 
   const clearSketch = () => {
-    strokeRef.current = []
+    strokesRef.current = []
     setPreview(null)
     redrawOverlay()
   }
@@ -621,9 +674,10 @@ export default function View3D() {
       <div className="canvas-hint">
         {sketch3d ? (
           <>
-            <b>Sketch a cabinet:</b> the view is frozen — draw a box on a wall or the floor
-            (redraw to adjust), then click <b>Done</b> to place it. It snaps to the nearest
-            wall. Toggle <b>✎ Sketch</b> off to move the camera again.
+            <b>Draw a cabinet:</b> the view is frozen. Draw the <b>outline</b> first, then add
+            <b> vertical lines</b> for dividers and <b>horizontal lines</b> for drawers — the
+            cabinet updates as you draw. Tap <b>Done</b> to place it (it snaps to the wall).
+            Toggle <b>✎ Sketch</b> off to move the camera.
           </>
         ) : (
           <>

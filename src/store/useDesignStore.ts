@@ -13,7 +13,8 @@ import type {
   Wall,
 } from '../types'
 import { company } from '../config/company'
-import { dist, uid } from '../lib/geometry'
+import { dist, snapToWall, uid } from '../lib/geometry'
+import { defaultCabinet, defaultWallCabinet } from '../data/cabinet'
 import type { Unit } from '../lib/units'
 import * as storage from '../lib/storage'
 import type { ProjectMeta } from '../lib/storage'
@@ -93,6 +94,8 @@ interface DesignState {
 
   // cabinets
   setPlacingModel: (modelId: string | null) => void
+  /** Add a new base/wall cabinet at the design centre and open the editor. */
+  addNewCabinet: (kind: 'base' | 'wall') => void
   addCabinetItem: (spec: CabinetSpec, position: Vec2) => string
   updateCabinet: (itemId: string, spec: CabinetSpec) => void
   openCabinetEditor: (itemId: string) => void
@@ -310,6 +313,40 @@ export const useDesignStore = create<DesignState>((set, get) => {
     // ---- cabinets ----
     setPlacingModel: (placingModelId) =>
       set({ placingModelId, placingProductId: null, placingLight: false, tool: placingModelId ? 'place' : 'select' }),
+
+    addNewCabinet: (kind) => {
+      const s = get()
+      let cx = 0
+      let cy = 0
+      let n = 0
+      for (const w of s.walls) {
+        cx += w.start.x + w.end.x
+        cy += w.start.y + w.end.y
+        n += 2
+      }
+      const center = n ? { x: cx / n, y: cy / n } : { x: 0, y: 0 }
+      const spec = kind === 'wall' ? defaultWallCabinet() : defaultCabinet()
+      const snapped = snapToWall(center, spec.depth, s.walls, 1.5)
+      const id = uid('item')
+      const item: PlacedItem = {
+        id,
+        productId: 'custom-cabinet',
+        position: snapped?.position ?? center,
+        rotation: snapped?.rotation ?? 0,
+        cabinet: spec,
+      }
+      set((st) => ({
+        ...checkpoint(),
+        items: [...st.items, item],
+        selection: { kind: 'item', id },
+        placingModelId: null,
+        placingProductId: null,
+        placingLight: false,
+        tool: 'select',
+        editingItemId: id,
+      }))
+      save()
+    },
 
     addCabinetItem: (spec, position) => {
       const id = uid('item')

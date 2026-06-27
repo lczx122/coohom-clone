@@ -85,6 +85,10 @@ export default function FloorPlanCanvas() {
   const gestureRef = useRef<{ d0: number; worldMid: Vec2; cam0: { zoom: number; panX: number; panY: number } } | null>(null)
   const suppressRef = useRef(false)
 
+  // wall drawing (press-drag-release per segment, with tap-tap fallback)
+  const anchorJustSet = useRef(false)
+  const drawStartScreen = useRef<Vec2>({ x: 0, y: 0 })
+
   // long-press context menu + stylus/palm handling
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -271,14 +275,12 @@ export default function FloorPlanCanvas() {
       }
 
       if (tool === 'wall') {
+        drawStartScreen.current = screen
         if (interaction.type === 'drawing') {
-          const p = snapDraw(interaction.anchor, world)
-          if (dist(interaction.anchor, p) > 0.01) {
-            store.addWall(interaction.anchor, p)
-            setInteraction({ type: 'drawing', anchor: p })
-          }
+          anchorJustSet.current = false
         } else {
           setInteraction({ type: 'drawing', anchor: snap(world) })
+          anchorJustSet.current = true
         }
         return
       }
@@ -522,6 +524,18 @@ export default function FloorPlanCanvas() {
         case 'panning':
           setInteraction({ type: 'idle' })
           break
+        case 'drawing': {
+          const upScreen = getMouse(e)
+          const p = snapDraw(interaction.anchor, screenToWorld(upScreen))
+          const moved = Math.hypot(upScreen.x - drawStartScreen.current.x, upScreen.y - drawStartScreen.current.y) > 8
+          if (anchorJustSet.current && !moved) {
+            // the initial tap just placed the start point — keep waiting
+          } else if (dist(interaction.anchor, p) > 0.05) {
+            store.addWall(interaction.anchor, p)
+            setInteraction({ type: 'drawing', anchor: p })
+          }
+          break
+        }
         case 'sketching': {
           const run = computeRun(interaction.points)
           if (run.length > 0) {
@@ -541,7 +555,7 @@ export default function FloorPlanCanvas() {
           break
       }
     },
-    [interaction, walls, items, computeRun, sketchDepth, store],
+    [interaction, walls, items, computeRun, sketchDepth, getMouse, screenToWorld, snapDraw, store],
   )
 
   const onPointerCancel = useCallback((e: React.PointerEvent) => {

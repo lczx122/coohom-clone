@@ -41,7 +41,9 @@ npm run typecheck  # types only
 **2D editor (the core)**
 - Draw chained walls — **left-click** to add points, **right-click** to finish and
   switch back to the cursor. Walls snap to the grid and to existing corners.
-- Draw at any angle freely; **hold Shift** to snap to right angles. When the new
+- Draw walls by **press-drag-release** (each drag is one segment, with a live
+  preview) or tap-to-place corners; finish with **Finish wall** or a double-tap.
+  Draw at any angle; the **Ortho** toggle snaps to right angles. When a new
   segment starts at an existing corner, a live **angle indicator** shows the
   angle between the two walls.
 - **Hold Space** to temporarily pan; release to return to your previous tool.
@@ -98,10 +100,11 @@ npm run typecheck  # types only
 - **Move the camera freely**: **WASD** to move, **Q/E** for up/down, **Shift**
   to move faster, mouse-drag to look, scroll to zoom.
 - **Sketch a cabinet in 3D**: toggle **✎ Sketch** to freeze the camera, then
-  draw a box on the frozen view (mouse or stylus). Drawing on a **wall** places
-  the cabinet flush against it (depth inferred); otherwise it snaps to the
-  nearest wall. Redraw to adjust; the cabinet is only placed when you click
-  **Done**. Toggle off to move the camera again.
+  *draw the cabinet*. The first stroke is the **outline** (carcass); add
+  **vertical lines** for dividers (splitting it into sections) and **horizontal
+  lines** for drawers — the cabinet updates live to match what you drew. Drawing
+  on a **wall** mounts it there (high strokes become wall cabinets); otherwise it
+  snaps to the nearest wall. Place it with **Done**.
 - Enclosed rooms get flooring (per-room choice), point-lights illuminate the
   scene, and you can switch between a **Studio** backdrop and an **Outdoor**
   environment with a procedural sky.
