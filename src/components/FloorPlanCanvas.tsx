@@ -85,6 +85,16 @@ export default function FloorPlanCanvas() {
   const gestureRef = useRef<{ d0: number; worldMid: Vec2; cam0: { zoom: number; panX: number; panY: number } } | null>(null)
   const suppressRef = useRef(false)
 
+  // long-press context menu + stylus/palm handling
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; id: string } | null>(null)
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressFired = useRef(false)
+  const pressStart = useRef<Vec2>({ x: 0, y: 0 })
+  const penActive = useRef(false)
+
+  const isPalm = (e: React.PointerEvent) =>
+    e.pointerType === 'touch' && (penActive.current || e.width > 45 || e.height > 45)
+
   const store = useDesignStore()
   const {
     walls, openings, items, camera, tool, selection, placingProductId, placingModelId, placingLight,
@@ -208,12 +218,23 @@ export default function FloorPlanCanvas() {
   // ----- pointer handlers -----
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      // Right click: finish any drawing and return to the cursor tool.
+      if (e.pointerType === 'pen') penActive.current = true
+      setCtxMenu(null)
+
+      // Right click: context menu on an item, else finish drawing & switch to cursor.
       if (e.button === 2) {
-        setInteraction({ type: 'idle' })
-        store.setTool('select')
+        const s2 = getMouse(e)
+        const hit = itemAt(screenToWorld(s2))
+        if (hit) setCtxMenu({ x: s2.x, y: s2.y, id: hit.id })
+        else {
+          setInteraction({ type: 'idle' })
+          store.setTool('select')
+        }
         return
       }
+
+      // ignore palm / touch-while-stylus for the sketch tool
+      if (tool === 'sketch' && isPalm(e)) return
 
       // track touch points; a second finger starts a pinch/pan gesture
       const sc = getMouse(e)
@@ -321,6 +342,16 @@ export default function FloorPlanCanvas() {
       if (it) {
         store.setSelection({ kind: 'item', id: it.id })
         setInteraction({ type: 'drag-item', id: it.id, grabOffset: sub(world, it.position), current: it.position })
+        // long-press opens a context menu for this item
+        pressStart.current = screen
+        longPressFired.current = false
+        if (longPressTimer.current) clearTimeout(longPressTimer.current)
+        const targetId = it.id
+        longPressTimer.current = setTimeout(() => {
+          longPressFired.current = true
+          setInteraction({ type: 'idle' })
+          setCtxMenu({ x: screen.x, y: screen.y, id: targetId })
+        }, 500)
         return
       }
 
@@ -381,6 +412,15 @@ export default function FloorPlanCanvas() {
       }
       if (suppressRef.current) return
 
+      // cancel a pending long-press once the finger moves
+      if (longPressTimer.current) {
+        const s = getMouse(e)
+        if (Math.hypot(s.x - pressStart.current.x, s.y - pressStart.current.y) > 8) {
+          clearTimeout(longPressTimer.current)
+          longPressTimer.current = null
+        }
+      }
+
       const screen = getMouse(e)
       const world = screenToWorld(screen)
       setMouseWorld(world)
@@ -420,8 +460,22 @@ export default function FloorPlanCanvas() {
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
+      if (e.pointerType === 'pen') penActive.current = false
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current)
+        longPressTimer.current = null
+      }
       const wasGesture = suppressRef.current || gestureRef.current !== null
       activePointers.current.delete(e.pointerId)
+      if (longPressFired.current) {
+        longPressFired.current = false
+        try {
+          canvasRef.current?.releasePointerCapture(e.pointerId)
+        } catch {
+          /* not captured */
+        }
+        return
+      }
       if (activePointers.current.size < 2) gestureRef.current = null
       if (activePointers.current.size === 0) suppressRef.current = false
       try {
@@ -892,6 +946,26 @@ export default function FloorPlanCanvas() {
           </button>
         </div>
       )}
+
+      {ctxMenu &&
+        (() => {
+          const it = items.find((i) => i.id === ctxMenu.id)
+          if (!it) return null
+          return (
+            <div className="ctx-menu" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+              {it.cabinet && (
+                <button onClick={() => { store.openCabinetEditor(it.id); setCtxMenu(null) }}>Edit cabinet…</button>
+              )}
+              <button onClick={() => { store.duplicateItem(it.id); setCtxMenu(null) }}>Duplicate</button>
+              <button onClick={() => { store.updateItem(it.id, { rotation: it.rotation + Math.PI / 2 }); setCtxMenu(null) }}>
+                Rotate 90°
+              </button>
+              <button className="ctx-danger" onClick={() => { store.removeItem(it.id); setCtxMenu(null) }}>
+                Delete
+              </button>
+            </div>
+          )
+        })()}
 
       {lenBox && (
         <div className="len-editor" style={{ left: lenBox.x, top: lenBox.y }}>

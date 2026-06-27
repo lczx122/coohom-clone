@@ -7,6 +7,7 @@ import View3D from './components/View3D'
 import StatusBar from './components/StatusBar'
 import CabinetEditor from './components/CabinetEditor'
 import AuthGate from './components/AuthGate'
+import BottomToolDock from './components/BottomToolDock'
 import { useDesignStore } from './store/useDesignStore'
 import { useAuthStore } from './store/useAuthStore'
 import type { Tool } from './types'
@@ -15,6 +16,27 @@ export default function App() {
   const [view, setView] = useState<'2d' | '3d'>('2d')
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
+  const [touchUI, setTouchUI] = useState(false)
+
+  // touch UI + responsive auto-collapse of sidebars in portrait / narrow layouts
+  useEffect(() => {
+    const coarse = window.matchMedia('(pointer: coarse)')
+    const narrow = window.matchMedia('(max-width: 980px), (orientation: portrait)')
+    const applyCoarse = () => setTouchUI(coarse.matches)
+    const applyNarrow = () => {
+      const collapse = narrow.matches
+      setLeftCollapsed(collapse)
+      setRightCollapsed(collapse)
+    }
+    applyCoarse()
+    applyNarrow()
+    coarse.addEventListener('change', applyCoarse)
+    narrow.addEventListener('change', applyNarrow)
+    return () => {
+      coarse.removeEventListener('change', applyCoarse)
+      narrow.removeEventListener('change', applyNarrow)
+    }
+  }, [])
   const setTool = useDesignStore((s) => s.setTool)
   const deleteSelection = useDesignStore((s) => s.deleteSelection)
   const undo = useDesignStore((s) => s.undo)
@@ -143,6 +165,8 @@ export default function App() {
       {!rightCollapsed && <PropertiesPanel />}
       <StatusBar />
       <CabinetEditor />
+
+      {touchUI && view === '2d' && <BottomToolDock />}
 
       {/* floating 2D/3D view switch — always reachable regardless of toolbar width */}
       <div className="floating-view">

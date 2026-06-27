@@ -87,6 +87,9 @@ interface DesignState {
   /** Add many items in a single undo step (used by sketch-to-cabinet). */
   addItems: (items: PlacedItem[]) => void
   updateItem: (id: string, patch: Partial<PlacedItem>) => void
+  /** Duplicate an item (offset slightly) and select the copy. */
+  duplicateItem: (id: string) => void
+  removeItem: (id: string) => void
 
   // cabinets
   setPlacingModel: (modelId: string | null) => void
@@ -276,6 +279,31 @@ export const useDesignStore = create<DesignState>((set, get) => {
 
     updateItem: (id, patch) => {
       set((s) => ({ ...checkpoint(), items: s.items.map((it) => (it.id === id ? { ...it, ...patch } : it)) }))
+      save()
+    },
+
+    duplicateItem: (id) => {
+      const src = get().items.find((it) => it.id === id)
+      if (!src) return
+      const copy: PlacedItem = {
+        ...src,
+        id: uid('item'),
+        position: { x: src.position.x + 0.2, y: src.position.y + 0.2 },
+        cabinet: src.cabinet
+          ? { ...src.cabinet, sections: src.cabinet.sections?.map((sec) => ({ ...sec, accessories: sec.accessories.map((a) => ({ ...a })) })) }
+          : undefined,
+        light: src.light ? { ...src.light } : undefined,
+      }
+      set((s) => ({ ...checkpoint(), items: [...s.items, copy], selection: { kind: 'item', id: copy.id } }))
+      save()
+    },
+
+    removeItem: (id) => {
+      set((s) => ({
+        ...checkpoint(),
+        items: s.items.filter((it) => it.id !== id),
+        selection: s.selection?.kind === 'item' && s.selection.id === id ? null : s.selection,
+      }))
       save()
     },
 

@@ -30,6 +30,13 @@ npm run typecheck  # types only
   wall** button (or a double-tap), and every action has a touch target sized for
   fingers. The 3D view orbits/zooms with standard touch gestures, and cabinet
   resize handles are finger-sized.
+- On touch devices a **bottom thumb dock** holds the main tools; in portrait /
+  narrow layouts the side panels **auto-collapse** to a full-width canvas (tap
+  the edge handles to reopen).
+- **Long-press** (or right-click) an item for a context menu — Edit, Duplicate,
+  Rotate 90°, Delete.
+- **Stylus priority / palm rejection**: while a pen is in use, touch input
+  (and large palm contacts) are ignored by the sketch tools.
 
 **2D editor (the core)**
 - Draw chained walls — **left-click** to add points, **right-click** to finish and

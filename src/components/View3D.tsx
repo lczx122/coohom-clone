@@ -368,6 +368,7 @@ export default function View3D() {
   const overlayRef = useRef<HTMLCanvasElement | null>(null)
   const strokeRef = useRef<{ x: number; y: number }[]>([])
   const drawingRef = useRef(false)
+  const penActiveRef = useRef(false)
 
   // size the drawing overlay to the canvas when sketch mode turns on
   useEffect(() => {
@@ -411,7 +412,14 @@ export default function View3D() {
   }
 
   const onSketchDown = (e: React.PointerEvent) => {
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    if (e.pointerType === 'pen') penActiveRef.current = true
+    // palm rejection: ignore touch while a stylus is in use, or large contacts
+    if (e.pointerType === 'touch' && (penActiveRef.current || e.width > 45 || e.height > 45)) return
+    try {
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    } catch {
+      /* not capturable */
+    }
     const { x, y } = relPoint(e)
     strokeRef.current = [{ x, y }]
     drawingRef.current = true
@@ -431,6 +439,7 @@ export default function View3D() {
   // a finished stroke just updates the (editable) preview — it is not committed
   // until the user clicks Done.
   const onSketchUp = (e: React.PointerEvent) => {
+    if (e.pointerType === 'pen') penActiveRef.current = false
     if (!drawingRef.current) return
     drawingRef.current = false
     try {
