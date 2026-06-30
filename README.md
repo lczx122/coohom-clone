@@ -101,11 +101,14 @@ npm run typecheck  # types only
   to move faster, mouse-drag to look, scroll to zoom.
 - **Sketch a cabinet in 3D**: toggle **✎ Sketch** to freeze the camera, then
   *draw the cabinet*. The first stroke is the **outline** (carcass); then the
-  app reads your marks: **vertical line** = divider, **full-width line** = drawer,
-  **short line** = shelf, **X / diagonal** = open shelving, **circle** = knob
-  handle. It updates live; **Undo stroke** removes the last mark and **Done**
-  places it. Drawing on a **wall** mounts it there (high strokes become wall
-  cabinets); otherwise it snaps to the nearest wall.
+  app reads your marks (tap **Symbols** for the legend):
+  - **vertical line** = divider · **full-width line** = drawer · **short line** =
+    shelf · **X / diagonal** = open shelving · **arrow** = pull-out basket ·
+    **circle** = knob handle (near the top → top handle, lower → side handle).
+  - It updates live; **Undo stroke** removes the last mark, **Done** places it.
+  - Drawing over a **wall** auto-fits the cabinet to the wall's width (and full
+    height for tall units), mounts high strokes as wall cabinets, and otherwise
+    snaps to the nearest wall.
 - Enclosed rooms get flooring (per-room choice), point-lights illuminate the
   scene, and you can switch between a **Studio** backdrop and an **Outdoor**
   environment with a procedural sky.

@@ -636,6 +636,37 @@ button {
   touch-action: none;
   background: rgba(47, 109, 246, 0.04);
 }
+.sketch-legend {
+  position: absolute;
+  right: 12px;
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  z-index: 12;
+  background: rgba(23, 26, 33, 0.96);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.sketch-legend .legend-title {
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.sketch-legend .legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.sketch-legend .legend-row span {
+  width: 18px;
+  text-align: center;
+  color: var(--brand);
+  font-size: 14px;
+}
 .sketch3d-controls {
   position: absolute;
   left: 50%;

@@ -7,8 +7,8 @@ import { productById } from '../data/catalog'
 import { detectRooms } from '../lib/rooms'
 import { DEFAULT_FLOORING, flooringByKey, floorings } from '../data/flooring'
 import type { FloorKind } from '../data/flooring'
-import { defaultCabinet, defaultWallCabinet, newSection } from '../data/cabinet'
-import { snapToWall } from '../lib/geometry'
+import { defaultCabinet, defaultWallCabinet, newAccessory, newSection } from '../data/cabinet'
+import { nearestWall, snapToWall } from '../lib/geometry'
 import CabinetModel from './CabinetModel'
 import type { CabinetSection, CabinetSpec, PlacedItem, Vec2, Wall } from '../types'
 
@@ -64,6 +64,28 @@ const bboxOf = (stroke: { x: number; y: number }[]): Box => {
   return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) }
 }
 
+/**
+ * Heuristic arrow detector: a stroke long enough to be an arrow whose tail
+ * reverses relative to its shaft (the arrowhead), with extra path length.
+ */
+function isArrow(stroke: { x: number; y: number }[], b: Box): boolean {
+  if (stroke.length < 6) return false
+  const diag = Math.hypot(b.maxX - b.minX, b.maxY - b.minY)
+  if (diag < 35) return false
+  let len = 0
+  for (let i = 1; i < stroke.length; i++) len += Math.hypot(stroke[i].x - stroke[i - 1].x, stroke[i].y - stroke[i - 1].y)
+  if (len / diag < 1.45) return false // a clean line has ratio ~1
+  const a = stroke[0]
+  const mid = stroke[Math.floor(stroke.length * 0.55)]
+  const end = stroke[stroke.length - 1]
+  const sx = mid.x - a.x
+  const sy = mid.y - a.y
+  const tx = end.x - mid.x
+  const ty = end.y - mid.y
+  const cos = (sx * tx + sy * ty) / ((Math.hypot(sx, sy) || 1) * (Math.hypot(tx, ty) || 1))
+  return cos < -0.15 // tail folds back → arrowhead
+}
+
 interface Carcass {
   position: Vec2
   rotation: number
@@ -115,6 +137,23 @@ function carcassFromBox(b: Box, rect: { width: number; height: number }, camera:
     height = clamp((maxY - minY) / pxPerMeterAt(base, rect, camera), 0.2, 3)
   }
 
+  // auto-fit to the nearest wall when the outline roughly covers it (works
+  // whether the stroke landed on the wall or on the floor in front of it)
+  const near = nearestWall(candidate, walls, 0.9)
+  if (near) {
+    const w = near.wall
+    const wlen = Math.hypot(w.end.x - w.start.x, w.end.y - w.start.y)
+    if (wlen > 0 && width >= 0.7 * wlen) {
+      width = wlen
+      candidate = { x: (w.start.x + w.end.x) / 2, y: (w.start.y + w.end.y) / 2 }
+    }
+    if (w.height > 0 && height >= 0.75 * w.height) {
+      height = w.height
+      wallMounted = false
+      mountHeight = 0
+    }
+  }
+
   const depth = wallMounted ? 0.35 : 0.6
   const snap = snapToWall(candidate, depth, walls, onWall ? 3 : 0.7)
   let position: Vec2
@@ -157,8 +196,9 @@ function interpretSketch(
   const outH = outline.maxY - outline.minY || 1
   type HLine = { u: number; w: number }
   const hlines: HLine[] = []
-  const knobs: number[] = []
+  const knobs: { u: number; v: number }[] = []
   const crosses: number[] = []
+  const arrows: number[] = []
   for (let i = 1; i < strokes.length; i++) {
     const st = strokes[i]
     if (st.length < 2) continue
@@ -166,19 +206,22 @@ function interpretSketch(
     const w = b.maxX - b.minX
     const h = b.maxY - b.minY
     const u = clamp(((b.minX + b.maxX) / 2 - outline.minX) / outW, 0.04, 0.96)
+    const v = clamp(((b.minY + b.maxY) / 2 - outline.minY) / outH, 0.04, 0.96)
     const small = w < 0.22 * outW && h < 0.22 * outH
     const squarish = w > 0 && h > 0 && w / h > 0.5 && w / h < 2
     const first = st[0]
     const last = st[st.length - 1]
     const closed = Math.hypot(first.x - last.x, first.y - last.y) < 0.4 * Math.max(w, h)
     if (small && squarish && closed) {
-      knobs.push(u) // circle → knob handle
+      knobs.push({ u, v }) // circle → knob handle (position from v)
+    } else if (isArrow(st, b)) {
+      arrows.push(u) // arrow → pull-out
     } else if (h > w * 1.5) {
       dividers.push(u) // vertical → divider
     } else if (w > h * 1.5) {
       hlines.push({ u, w }) // horizontal → shelf / drawer
     } else if (w > 0.25 * outW && h > 0.25 * outH) {
-      crosses.push(u) // big diagonal / X → open shelving
+      crosses.push(u) // diagonal / X → open shelving
     }
   }
   dividers.sort((a, b) => a - b)
@@ -195,8 +238,9 @@ function interpretSketch(
     const hl = hlines.filter((d) => inSec(d.u))
     const wide = hl.filter((d) => d.w >= 0.5 * secScreenW)
     const shortLines = hl.filter((d) => d.w < 0.5 * secScreenW)
-    const hasKnob = knobs.some(inSec)
+    const knob = knobs.find((kk) => inSec(kk.u))
     const isOpen = crosses.some(inSec)
+    const hasArrow = arrows.some(inSec)
 
     let s: CabinetSection
     if (wide.length > 0) {
@@ -211,7 +255,11 @@ function interpretSketch(
     } else {
       s = newSection(wr, absW > 0.55 ? 'door-double' : 'door-left')
     }
-    s.handle = hasKnob ? 'knob' : 'bar'
+    if (knob) {
+      s.handle = 'knob'
+      s.handlePos = knob.v < 0.35 ? 'top' : 'side' // circle near the top → top handle
+    }
+    if (hasArrow) s.accessories.push(newAccessory('basket')) // arrow → pull-out basket
     sections.push(s)
   }
 
@@ -451,6 +499,7 @@ export default function View3D() {
   const [sketch3d, setSketch3d] = useState(false)
   const [preview, setPreview] = useState<SketchPreview | null>(null)
   const [strokeCount, setStrokeCount] = useState(0)
+  const [showLegend, setShowLegend] = useState(false)
   const tapRef = useRef<{ camera: THREE.Camera; scene: THREE.Scene } | null>(null)
   const overlayRef = useRef<HTMLCanvasElement | null>(null)
   const strokesRef = useRef<{ x: number; y: number }[][]>([]) // accumulated strokes
@@ -698,6 +747,22 @@ export default function View3D() {
           <button className="icon-btn" onClick={clearSketch} disabled={strokeCount === 0}>
             Clear
           </button>
+          <button className={`icon-btn ${showLegend ? 'primary' : ''}`} onClick={() => setShowLegend((v) => !v)}>
+            Symbols
+          </button>
+        </div>
+      )}
+
+      {sketch3d && showLegend && (
+        <div className="sketch-legend">
+          <div className="legend-title">Sketch symbols</div>
+          <div className="legend-row"><span>▭</span> Outline → cabinet size (draw first)</div>
+          <div className="legend-row"><span>│</span> Vertical line → divider / section</div>
+          <div className="legend-row"><span>▬</span> Full-width line → drawer</div>
+          <div className="legend-row"><span>–</span> Short line → shelf</div>
+          <div className="legend-row"><span>✕</span> X / diagonal → open shelving</div>
+          <div className="legend-row"><span>↗</span> Arrow → pull-out basket</div>
+          <div className="legend-row"><span>◯</span> Circle → knob handle (top vs side)</div>
         </div>
       )}
 

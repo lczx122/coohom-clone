@@ -369,12 +369,23 @@ export default function CabinetEditor() {
                   </div>
                 </div>
                 {s.front !== 'none' && (
-                  <div className="field">
-                    <label>Handle</label>
-                    <select value={s.handle ?? 'bar'} onChange={(e) => updateSection(s.id, { handle: e.target.value as 'bar' | 'knob' })}>
-                      <option value="bar">Bar</option>
-                      <option value="knob">Knob</option>
-                    </select>
+                  <div className="row2">
+                    <div className="field">
+                      <label>Handle</label>
+                      <select value={s.handle ?? 'bar'} onChange={(e) => updateSection(s.id, { handle: e.target.value as 'bar' | 'knob' })}>
+                        <option value="bar">Bar</option>
+                        <option value="knob">Knob</option>
+                      </select>
+                    </div>
+                    {s.front !== 'drawers' && (
+                      <div className="field">
+                        <label>Handle position</label>
+                        <select value={s.handlePos ?? 'side'} onChange={(e) => updateSection(s.id, { handlePos: e.target.value as 'top' | 'side' })}>
+                          <option value="side">Side</option>
+                          <option value="top">Top</option>
+                        </select>
+                      </div>
+                    )}
                   </div>
                 )}
 

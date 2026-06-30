@@ -52,6 +52,7 @@ function Door({
   color,
   open,
   handle = 'bar',
+  handlePos = 'side',
 }: {
   hingeX: number
   dirSign: 1 | -1
@@ -62,15 +63,21 @@ function Door({
   color: string
   open: boolean
   handle?: 'bar' | 'knob'
+  handlePos?: 'top' | 'side'
 }) {
   const angle = open ? dirSign * -1.7 : 0
+  const z2 = TD / 2 + 0.012
   return (
     <group position={[hingeX, yCenter, z]} rotation={[0, angle, 0]}>
       <mesh position={[(dirSign * width) / 2, 0, 0]} castShadow>
         <boxGeometry args={[width, height, TD]} />
         <meshStandardMaterial color={color} roughness={0.5} metalness={0.05} />
       </mesh>
-      <Handle position={[dirSign * (width - 0.03), 0, TD / 2 + 0.012]} kind={handle} vertical length={Math.min(0.12, height * 0.25)} />
+      {handlePos === 'top' ? (
+        <Handle position={[dirSign * width * 0.5, height / 2 - 0.05, z2]} kind={handle} vertical={false} length={Math.min(0.12, width * 0.4)} />
+      ) : (
+        <Handle position={[dirSign * (width - 0.03), 0, z2]} kind={handle} vertical length={Math.min(0.12, height * 0.25)} />
+      )}
       {[-1, 1].map((s) => (
         <mesh key={s} position={[0, s * (height / 2 - 0.08), -TD / 2]} rotation={[0, 0, Math.PI / 2]}>
           <cylinderGeometry args={[0.012, 0.012, 0.05, 12]} />
@@ -253,15 +260,15 @@ function SectionsCabinet({ spec, open }: { spec: CabinetSpec; open: boolean }) {
                   {/* doors */}
                   {sec.front === 'door-double' && (
                     <>
-                      <Door hingeX={x0 + GAP} dirSign={1} width={w / 2 - GAP * 1.5} height={H - 2 * GAP} yCenter={H / 2} z={doorZ} color={color} open={open} handle={sec.handle ?? 'bar'} />
-                      <Door hingeX={x1 - GAP} dirSign={-1} width={w / 2 - GAP * 1.5} height={H - 2 * GAP} yCenter={H / 2} z={doorZ} color={color} open={open} handle={sec.handle ?? 'bar'} />
+                      <Door hingeX={x0 + GAP} dirSign={1} width={w / 2 - GAP * 1.5} height={H - 2 * GAP} yCenter={H / 2} z={doorZ} color={color} open={open} handle={sec.handle ?? 'bar'} handlePos={sec.handlePos ?? 'side'} />
+                      <Door hingeX={x1 - GAP} dirSign={-1} width={w / 2 - GAP * 1.5} height={H - 2 * GAP} yCenter={H / 2} z={doorZ} color={color} open={open} handle={sec.handle ?? 'bar'} handlePos={sec.handlePos ?? 'side'} />
                     </>
                   )}
                   {sec.front === 'door-left' && (
-                    <Door hingeX={x0 + GAP} dirSign={1} width={w - 2 * GAP} height={H - 2 * GAP} yCenter={H / 2} z={doorZ} color={color} open={open} handle={sec.handle ?? 'bar'} />
+                    <Door hingeX={x0 + GAP} dirSign={1} width={w - 2 * GAP} height={H - 2 * GAP} yCenter={H / 2} z={doorZ} color={color} open={open} handle={sec.handle ?? 'bar'} handlePos={sec.handlePos ?? 'side'} />
                   )}
                   {sec.front === 'door-right' && (
-                    <Door hingeX={x1 - GAP} dirSign={-1} width={w - 2 * GAP} height={H - 2 * GAP} yCenter={H / 2} z={doorZ} color={color} open={open} handle={sec.handle ?? 'bar'} />
+                    <Door hingeX={x1 - GAP} dirSign={-1} width={w - 2 * GAP} height={H - 2 * GAP} yCenter={H / 2} z={doorZ} color={color} open={open} handle={sec.handle ?? 'bar'} handlePos={sec.handlePos ?? 'side'} />
                   )}
                 </>
               )}

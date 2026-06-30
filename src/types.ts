@@ -96,6 +96,8 @@ export interface CabinetSection {
   accessories: CabinetAccessory[]
   /** handle style for this section's doors/drawers */
   handle?: 'bar' | 'knob'
+  /** handle placement on doors */
+  handlePos?: 'top' | 'side'
 }
 
 export interface CabinetSpec {
